@@ -18,6 +18,7 @@ from .exceptions import (
     ServerError,
     VidNavigatorError,
 )
+from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
 USER_AGENT = "vidnavigator-python/0.1.0"
@@ -126,7 +127,7 @@ class VidNavigatorClient:
     # ---------------------------------------------------------------------
 
     # Transcripts ------------------------------------------------------------------
-    def get_transcript(self, *, video_url: str, language: Optional[str] = None) -> Dict[str, Any]:
+    def get_transcript(self, *, video_url: str, language: Optional[str] = None) -> models.TranscriptResponse:
         """Extract transcript from an online video.
 
         Parameters
@@ -139,7 +140,8 @@ class VidNavigatorClient:
         payload: Dict[str, Any] = {"video_url": video_url}
         if language:
             payload["language"] = language
-        return self._request("POST", "/transcript", json=payload)
+        raw = self._request("POST", "/transcript", json=payload)
+        return models.TranscriptResponse.parse_obj(raw)
 
     # Files ------------------------------------------------------------------------
     def get_files(
@@ -148,29 +150,33 @@ class VidNavigatorClient:
         limit: int = 50,
         offset: int = 0,
         status: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> models.FilesListResponse:
         """Retrieve a paginated list of uploaded files."""
         params: Dict[str, Any] = {"limit": limit, "offset": offset}
         if status:
             params["status"] = status
-        return self._request("GET", "/files", params=params)
+        raw = self._request("GET", "/files", params=params)
+        return models.FilesListResponse.parse_obj(raw)
 
-    def get_file(self, file_id: str) -> Dict[str, Any]:
+    def get_file(self, file_id: str) -> models.FileResponse:
         """Retrieve details (and transcript) for a specific file."""
-        return self._request("GET", f"/file/{file_id}")
+        raw = self._request("GET", f"/file/{file_id}")
+        return models.FileResponse.parse_obj(raw)
 
     # Analysis ---------------------------------------------------------------------
-    def analyze_video(self, *, video_url: str, query: Optional[str] = None) -> Dict[str, Any]:
+    def analyze_video(self, *, video_url: str, query: Optional[str] = None) -> models.AnalysisResponse:
         payload = {"video_url": video_url}
         if query:
             payload["query"] = query
-        return self._request("POST", "/analyze/video", json=payload)
+        raw = self._request("POST", "/analyze/video", json=payload)
+        return models.AnalysisResponse.parse_obj(raw)
 
-    def analyze_file(self, *, file_id: str, query: Optional[str] = None) -> Dict[str, Any]:
+    def analyze_file(self, *, file_id: str, query: Optional[str] = None) -> models.AnalysisResponse:
         payload = {"file_id": file_id}
         if query:
             payload["query"] = query
-        return self._request("POST", "/analyze/file", json=payload)
+        raw = self._request("POST", "/analyze/file", json=payload)
+        return models.AnalysisResponse.parse_obj(raw)
 
     # Search -----------------------------------------------------------------------
     def search_videos(
@@ -182,7 +188,7 @@ class VidNavigatorClient:
         end_year: Optional[int] = None,
         focus: str = "relevance",
         duration: Optional[int] = None,
-    ) -> Dict[str, Any]:
+    ) -> models.VideoSearchResponse:
         payload: Dict[str, Any] = {
             "query": query,
             "use_enhanced_search": use_enhanced_search,
@@ -194,10 +200,12 @@ class VidNavigatorClient:
             payload["end_year"] = end_year
         if duration is not None:
             payload["duration"] = duration
-        return self._request("POST", "/search/video", json=payload)
+        raw = self._request("POST", "/search/video", json=payload)
+        return models.VideoSearchResponse.parse_obj(raw)
 
-    def search_files(self, *, query: str) -> Dict[str, Any]:
-        return self._request("POST", "/search/file", json={"query": query})
+    def search_files(self, *, query: str) -> models.FileSearchResponse:
+        raw = self._request("POST", "/search/file", json={"query": query})
+        return models.FileSearchResponse.parse_obj(raw)
 
     # Uploads ----------------------------------------------------------------------
     def upload_file(self, file_path: str, *, wait_for_completion: bool = False) -> Dict[str, Any]:
