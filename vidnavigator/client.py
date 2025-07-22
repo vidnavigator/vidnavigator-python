@@ -4,7 +4,20 @@ from __future__ import annotations
 
 import json as _json
 import os
+import socket
+import sys
+from contextlib import contextmanager
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
+
+try:
+    # Python 3.7+
+    from contextlib import nullcontext
+except ImportError:
+    # Polyfill for Python < 3.7
+    @contextmanager
+    def nullcontext(enter_result=None):
+        yield enter_result
 
 import requests
 
@@ -19,6 +32,48 @@ from .exceptions import (
     VidNavigatorError,
 )
 from . import models
+
+# --- Windows DNS Resolution Patch ---
+
+_original_getaddrinfo = socket.getaddrinfo
+
+def _windows_getaddrinfo_wrapper(host, *args, **kwargs):
+    """
+    Workaround for a DNS resolution issue on some Windows systems where a CNAME
+    record for 'api.vidnavigator.com' may not be followed correctly. This
+    function intercepts requests for that host and resolves the base domain
+    'vidnavigator.com' instead.
+    """
+    if host == "api.vidnavigator.com":
+        try:
+            # Attempt to resolve the base domain.
+            return _original_getaddrinfo("vidnavigator.com", *args, **kwargs)
+        except socket.gaierror:
+            # If 'vidnavigator.com' also fails, fall through and let the original
+            # function handle 'api.vidnavigator.com' as a last resort.
+            pass
+    return _original_getaddrinfo(host, *args, **kwargs)
+
+@contextmanager
+def _dns_patcher():
+    """
+    Temporarily patches socket.getaddrinfo to use our wrapper. Does nothing
+    on non-Windows platforms.
+    """
+    if sys.platform != "win32" or socket.getaddrinfo.__name__ == "_windows_getaddrinfo_wrapper":
+        yield
+        return
+
+    # Apply the patch
+    socket.getaddrinfo = _windows_getaddrinfo_wrapper
+    try:
+        yield
+    finally:
+        # Always restore the original function
+        socket.getaddrinfo = _original_getaddrinfo
+
+# --- End of Patch ---
+
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
 USER_AGENT = "vidnavigator-python/0.1.0"
@@ -60,6 +115,11 @@ class VidNavigatorClient:
             "Accept": "application/json",
         })
 
+        # Determine if we should apply the DNS patch for requests.
+        self._should_patch_dns = (
+            urlparse(self.base_url).hostname == "api.vidnavigator.com"
+        )
+
     # ---------------------------------------------------------------------
     # Internal helpers
     # ---------------------------------------------------------------------
@@ -75,17 +135,22 @@ class VidNavigatorClient:
         stream: bool = False,
     ) -> Any:
         url = f"{self.base_url}{path}"
+
+        # Use a context manager that is either the DNS patcher or a no-op.
+        patch_manager = _dns_patcher() if self._should_patch_dns else nullcontext()
+
         try:
-            response = self.session.request(
-                method,
-                url,
-                params=params,
-                json=json,
-                data=data,
-                files=files,
-                timeout=self.timeout,
-                stream=stream,
-            )
+            with patch_manager:
+                response = self.session.request(
+                    method,
+                    url,
+                    params=params,
+                    json=json,
+                    data=data,
+                    files=files,
+                    timeout=self.timeout,
+                    stream=stream,
+                )
         except requests.RequestException as exc:
             raise VidNavigatorError(f"Request failed: {exc}") from exc
 
