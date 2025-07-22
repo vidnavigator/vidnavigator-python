@@ -33,17 +33,6 @@ class VideoInfo(BaseModel):
     selected_language: Optional[str] = Field(None, alias="selected_language")
 
 
-class UploadedFileInfo(BaseModel):
-    title: Optional[str] = None
-    file_id: Optional[str] = Field(None, alias="file_id")
-    filename: Optional[str] = None
-    file_size: Optional[int] = Field(None, alias="file_size")
-    file_type: Optional[str] = Field(None, alias="file_type")
-    duration: Optional[float] = None
-    created_at: Optional[str] = Field(None, alias="created_at")
-    original_file_date: Optional[str] = Field(None, alias="original_file_date")
-
-
 class FileInfo(BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None
@@ -132,7 +121,7 @@ class TranscriptResponse(BaseModel):
 
 class AnalysisData(BaseModel):
     video_info: Optional[VideoInfo] = Field(None, alias="video_info")
-    file_info: Optional[UploadedFileInfo] = Field(None, alias="file_info")
+    file_info: Optional[FileInfo] = Field(None, alias="file_info")
     transcript: List[TranscriptSegment]
     transcript_analysis: AnalysisResult = Field(alias="transcript_analysis")
 
