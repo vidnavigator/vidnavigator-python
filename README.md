@@ -4,7 +4,7 @@ Python SDK for the VidNavigator Developer API
 ## Installation
 
 ```bash
-pip install vidnavigator  # or publish on PyPI
+pip install vidnavigator
 ```
 
 ## Quickstart
