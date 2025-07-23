@@ -4,7 +4,7 @@ Python SDK for the VidNavigator Developer API
 ## Installation
 
 ```bash
-pip install git+https://github.com/your-org/vidnavigator-python.git  # or publish on PyPI
+pip install git+https://github.com/DeepSearchVideo/vidnavigator-python.git  # or publish on PyPI
 ```
 
 ## Quickstart

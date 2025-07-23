@@ -1,16 +1,27 @@
-"""VidNavigator Python SDK
+"""VidNavigator Developer API Python client."""
 
-A lightweight wrapper around the VidNavigator Developer API.
-"""
+__version__ = "0.1.0"
 
-from importlib.metadata import version, PackageNotFoundError
+from .client import VidNavigatorClient
+from .exceptions import (
+    VidNavigatorError,
+    AuthenticationError,
+    AccessDeniedError,
+    PaymentRequiredError,
+    NotFoundError,
+    RateLimitExceeded,
+    BadRequestError,
+    ServerError,
+)
 
-try:
-    __version__ = version(__name__)
-except PackageNotFoundError:
-    # Fallback when running from source
-    __version__ = "0.1.0"
-
-from .client import VidNavigatorClient  # noqa: E402
-
-__all__ = ["VidNavigatorClient", "__version__"] 
+__all__ = [
+    "VidNavigatorClient",
+    "VidNavigatorError",
+    "AuthenticationError",
+    "AccessDeniedError",
+    "PaymentRequiredError",
+    "NotFoundError",
+    "RateLimitExceeded",
+    "BadRequestError",
+    "ServerError",
+] 
