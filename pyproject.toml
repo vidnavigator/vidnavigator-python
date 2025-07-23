@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vidnavigator"
-version = "0.1.1"
+version = "0.1.2"
 authors = [
   { name="Hatem", email="hatem.mezlini@vidnavigator.com" },
 ]
@@ -30,5 +30,9 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/vidnavigator/vidnavigator-python"
-"Bug Tracker" = "https://github.com/vidnavigator/vidnavigator-python/issues" 
+"Homepage" = "https://vidnavigator.com"
+"Repository" = "https://github.com/vidnavigator/vidnavigator-python"
+"Bug Tracker" = "https://github.com/vidnavigator/vidnavigator-python/issues"
+
+[tool.setuptools.packages.find]
+exclude = ["tests*"] 
