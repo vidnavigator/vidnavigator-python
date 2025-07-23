@@ -4,7 +4,7 @@ Python SDK for the VidNavigator Developer API
 ## Installation
 
 ```bash
-pip install git+https://github.com/DeepSearchVideo/vidnavigator-python.git  # or publish on PyPI
+pip install vidnavigator  # or publish on PyPI
 ```
 
 ## Quickstart
@@ -18,40 +18,21 @@ client = VidNavigatorClient(api_key="YOUR_API_KEY")
 print(client.health_check())
 
 # Fetch transcript from YouTube
-transcript = client.get_transcript(
-    video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    language="en",
+resp = client.get_transcript(
+    video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 )
-print(transcript)
 
-# AI analysis
-analysis = client.analyze_video(
-    video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    query="What is the main topic discussed?",
-)
-print(analysis)
+# Get data as dictionary
+data = resp.data.model_dump()
+print(data)
 
-# Remember to close the client (or use `with` statement)
-client.close()
-```
 
-### Using a Context Manager
+## More Examples & Documentation
 
-```python
-from vidnavigator import VidNavigatorClient
+For a comprehensive set of usage examples covering all SDK features, please see the [`test.py`](test.py) file in this repository.
 
-with VidNavigatorClient(api_key="YOUR_API_KEY") as client:
-    results = client.search_videos(query="best practices for React development")
-    print(results)
-```
+For full API documentation, visit [docs.vidnavigator.com](https://docs.vidnavigator.com).
 
-## Development
-
-1. Install dependencies for development:
-   ```bash
-   pip install -r requirements.txt -r requirements-dev.txt
-   ```
-2. Run tests with `pytest`.
 
 ## License
 

@@ -43,7 +43,7 @@ def main():
     test_video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     print(f"📺 Getting transcript for: {test_video_url}")
     try:
-        resp = client.get_transcript(video_url=test_video_url, language="en")
+        resp = client.get_transcript(video_url=test_video_url)
         video_info = resp.data.video_info
         transcript = resp.data.transcript
 
@@ -55,6 +55,20 @@ def main():
         print("\n📝 First 3 transcript segments:")
         for segment in transcript[:3]:
             print(f"  - [{segment.start:.2f}s - {segment.end:.2f}s]: {segment.text}")
+
+        # --- How to get dicts or JSON ---
+        print("\n💡 Tip: The response objects are Pydantic models.")
+        print("You can easily convert them to dictionaries or JSON.")
+
+        # Example: Convert the first segment to a dictionary
+        first_segment_dict = transcript[0].model_dump()
+        print("\n🔄 First segment as a dictionary:")
+        print(first_segment_dict)
+
+        # Example: Get the whole response as a JSON string
+        print("\n🔄 Full response as pretty-printed JSON (first 300 chars):")
+        full_response_json = resp.model_dump_json(indent=2)
+        print(full_response_json[:300] + "...")
             
     except VidNavigatorError as e:
         print(f"❌ Transcript error: {e}")
