@@ -30,10 +30,23 @@ def main():
     # --- 2. Usage Statistics ---
     print("--- 2. Usage Statistics ---")
     try:
-        usage = client.get_usage()
+        usage_resp = client.get_usage()
+        usage_data = usage_resp.data
+        
         print("✅ Usage data retrieved:")
-        for key, value in usage.get("data", {}).items():
-            print(f"  - {key.replace('_', ' ').title()}: {value}")
+        print(f"  - Plan: {usage_data.subscription.plan_name}")
+        print(f"  - Period: {usage_data.current_period.start_date} to {usage_data.current_period.end_date}")
+        
+        print("\n  Storage:")
+        storage = usage_data.storage
+        print(f"    - Used: {storage.used_formatted} of {storage.limit_formatted} ({storage.percentage:.1f}%)")
+
+        print("\n  API Usage:")
+        for service_name, service_usage in usage_data.usage.model_dump().items():
+            if service_usage:
+                unit = service_usage.get('unit', 'requests')
+                print(f"    - {service_name.replace('_', ' ').title()}: {service_usage['used']:,} / {service_usage['limit']} {unit}")
+
     except VidNavigatorError as e:
         print(f"⚠️  Could not retrieve usage data: {e}")
     print("-" * 25 + "\n")

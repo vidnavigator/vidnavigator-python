@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, Any
+from typing import List, Optional, Any, Union
 
 from pydantic import BaseModel, Field
 
@@ -175,4 +175,48 @@ class FileResponseData(BaseModel):
 
 class FileResponse(BaseModel):
     status: str
-    data: FileResponseData 
+    data: FileResponseData
+
+
+# --- Usage Schemas ---
+
+class ServiceUsage(BaseModel):
+    used: float
+    limit: Union[int, str]
+    remaining: Union[float, str]
+    percentage: float
+    unit: Optional[str] = None
+
+class StorageUsage(BaseModel):
+    used_bytes: int
+    used_formatted: str
+    limit_bytes: Union[int, str]
+    limit_formatted: str
+    remaining_bytes: Union[int, str]
+    remaining_formatted: str
+    percentage: float
+
+class CurrentPeriod(BaseModel):
+    start_date: str
+    end_date: str
+
+class Subscription(BaseModel):
+    plan_id: str
+    plan_name: str
+
+class UsageDetails(BaseModel):
+    video_transcripts: Optional[ServiceUsage] = None
+    video_searches: Optional[ServiceUsage] = None
+    video_analyses: Optional[ServiceUsage] = None
+    video_scene_analyses: Optional[ServiceUsage] = None
+    video_uploads: Optional[ServiceUsage] = None
+
+class UsageData(BaseModel):
+    current_period: CurrentPeriod
+    subscription: Subscription
+    usage: UsageDetails
+    storage: StorageUsage
+
+class UsageResponse(BaseModel):
+    status: str
+    data: UsageData 

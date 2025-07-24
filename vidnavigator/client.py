@@ -239,8 +239,10 @@ class VidNavigatorClient:
         return self._request("GET", f"/file/{file_id}/url")
 
     # System -----------------------------------------------------------------------
-    def get_usage(self) -> Dict[str, Any]:
-        return self._request("GET", "/usage")
+    def get_usage(self) -> models.UsageResponse:
+        """Retrieve current API usage and storage information."""
+        raw = self._request("GET", "/usage")
+        return models.UsageResponse.parse_obj(raw)
 
     def health_check(self) -> Dict[str, Any]:
         # This endpoint does not require auth; we call it anyway on same session.
