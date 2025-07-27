@@ -143,6 +143,21 @@ class VidNavigatorClient:
         raw = self._request("POST", "/transcript", json=payload)
         return models.TranscriptResponse.parse_obj(raw)
 
+    def transcribe_video(self, *, video_url: str) -> models.TranscriptResponse:
+        """Transcribe an online video using speech-to-text.
+
+        This is used for videos where a transcript is not readily available,
+        such as on Instagram or TikTok.
+
+        Parameters
+        ----------
+        video_url: str
+            The full URL of the video to transcribe.
+        """
+        payload = {"video_url": video_url}
+        raw = self._request("POST", "/transcribe", json=payload)
+        return models.TranscriptResponse.parse_obj(raw)
+
     # Files ------------------------------------------------------------------------
     def get_files(
         self,

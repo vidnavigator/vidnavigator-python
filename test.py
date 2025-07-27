@@ -87,8 +87,21 @@ def main():
         print(f"❌ Transcript error: {e}")
     print("-" * 25 + "\n")
 
-    # --- 4. Analyze Video ---
-    print("--- 4. Video Analysis Test ---")
+    # --- 4. Transcribe Video (Speech-to-Text) ---
+    print("--- 4. Video Transcription (STT) Test ---")
+    # This URL is for a video that likely does not have a pre-made transcript.
+    test_stt_url = "https://www.instagram.com/reel/C86ZvEaqRmo/"
+    print(f"🎤 Transcribing video from: {test_stt_url}")
+    try:
+        resp = client.transcribe_video(video_url=test_stt_url)
+        print("✅ Transcription successful!")
+        print(f"  - First segment: \"{resp.data.transcript[0].text}\"")
+    except VidNavigatorError as e:
+        print(f"❌ Transcription (STT) error: {e}")
+    print("-" * 25 + "\n")
+
+    # --- 5. Analyze Video ---
+    print("--- 5. Video Analysis Test ---")
     try:
         analysis_resp = client.analyze_video(
             video_url=test_video_url,
