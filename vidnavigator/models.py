@@ -187,6 +187,7 @@ class ServiceUsage(BaseModel):
     percentage: float
     unit: Optional[str] = None
 
+
 class StorageUsage(BaseModel):
     used_bytes: int
     used_formatted: str
@@ -196,26 +197,43 @@ class StorageUsage(BaseModel):
     remaining_formatted: str
     percentage: float
 
-class CurrentPeriod(BaseModel):
-    start_date: str
-    end_date: str
+
+class UsagePeriod(BaseModel):
+    start: str
+    end: str
+
+
+class BillingPeriod(BaseModel):
+    start: str
+    end: str
+    interval: Optional[str] = None
+
 
 class Subscription(BaseModel):
     plan_id: str
     plan_name: str
+    interval: Optional[str] = None
+    status: Optional[str] = None
+    cancel_at_period_end: Optional[bool] = None
+
 
 class UsageDetails(BaseModel):
     video_transcripts: Optional[ServiceUsage] = None
     video_searches: Optional[ServiceUsage] = None
     video_analyses: Optional[ServiceUsage] = None
     video_scene_analyses: Optional[ServiceUsage] = None
+    youtube_channels_scans: Optional[ServiceUsage] = None
     video_uploads: Optional[ServiceUsage] = None
 
+
 class UsageData(BaseModel):
-    current_period: CurrentPeriod
+    usage_period: UsagePeriod
+    billing_period: BillingPeriod
     subscription: Subscription
     usage: UsageDetails
     storage: StorageUsage
+    generated_at: Optional[str] = None
+
 
 class UsageResponse(BaseModel):
     status: str

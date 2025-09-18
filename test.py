@@ -34,13 +34,31 @@ def main():
         usage_data = usage_resp.data
         
         print("✅ Usage data retrieved:")
-        print(f"  - Plan: {usage_data.subscription.plan_name}")
-        print(f"  - Period: {usage_data.current_period.start_date} to {usage_data.current_period.end_date}")
+        # Subscription
+        sub = usage_data.subscription
+        print(f"  - Plan: {sub.plan_name} ({sub.interval})")
+        if sub.status:
+            print(f"  - Subscription status: {sub.status}")
+        if sub.cancel_at_period_end is not None:
+            print(f"  - Cancels at period end: {sub.cancel_at_period_end}")
         
+        # Periods
+        up = usage_data.usage_period
+        bp = usage_data.billing_period
+        print(f"  - Usage period:   {up.start} → {up.end}")
+        bp_interval = f" ({bp.interval})" if getattr(bp, 'interval', None) else ""
+        print(f"  - Billing period: {bp.start} → {bp.end}{bp_interval}")
+        
+        # Generated at
+        if usage_data.generated_at:
+            print(f"  - Generated at:   {usage_data.generated_at}")
+        
+        # Storage
         print("\n  Storage:")
         storage = usage_data.storage
         print(f"    - Used: {storage.used_formatted} of {storage.limit_formatted} ({storage.percentage:.1f}%)")
 
+        # API Usage
         print("\n  API Usage:")
         for service_name, service_usage in usage_data.usage.model_dump().items():
             if service_usage:
@@ -51,7 +69,7 @@ def main():
         print(f"⚠️  Could not retrieve usage data: {e}")
     print("-" * 25 + "\n")
 
-    # --- 3. Get Video Transcript ---
+    # --- 3. Video Transcript Test ---
     print("--- 3. Video Transcript Test ---")
     test_video_url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
     print(f"📺 Getting transcript for: {test_video_url}")
@@ -87,21 +105,8 @@ def main():
         print(f"❌ Transcript error: {e}")
     print("-" * 25 + "\n")
 
-    # --- 4. Transcribe Video (Speech-to-Text) ---
-    print("--- 4. Video Transcription (STT) Test ---")
-    # This URL is for a video that likely does not have a pre-made transcript.
-    test_stt_url = "https://www.instagram.com/reel/C86ZvEaqRmo/"
-    print(f"🎤 Transcribing video from: {test_stt_url}")
-    try:
-        resp = client.transcribe_video(video_url=test_stt_url)
-        print("✅ Transcription successful!")
-        print(f"  - First segment: \"{resp.data.transcript[0].text}\"")
-    except VidNavigatorError as e:
-        print(f"❌ Transcription (STT) error: {e}")
-    print("-" * 25 + "\n")
-
-    # --- 5. Analyze Video ---
-    print("--- 5. Video Analysis Test ---")
+    # --- 4. Video Analysis Test ---
+    print("--- 4. Video Analysis Test ---")
     try:
         analysis_resp = client.analyze_video(
             video_url=test_video_url,
@@ -118,7 +123,7 @@ def main():
         print(f"❌ Analysis error: {e}")
     print("-" * 25 + "\n")
 
-    # --- 5. List Files ---
+    # --- 5. List Uploaded Files ---
     print("--- 5. List Uploaded Files ---")
     try:
         files_resp = client.get_files(limit=5)
