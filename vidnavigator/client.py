@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
 from typing import Any, Dict, List, Optional, Union
 import requests
@@ -428,8 +429,11 @@ class VidNavigatorClient:
         if namespace_ids is not None:
             data["namespace_ids"] = json.dumps(namespace_ids)
 
+        filename = os.path.basename(file_path)
+        content_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
+
         with open(file_path, "rb") as fp:
-            files = {"file": fp}
+            files = {"file": (filename, fp, content_type)}
             return self._request("POST", "/upload/file", data=data, files=files)
 
     def retry_file_processing(self, file_id: str) -> Dict[str, Any]:
