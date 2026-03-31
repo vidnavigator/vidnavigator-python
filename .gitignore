@@ -1,2 +1,6 @@
 .env
-vidnavigator/__pycache__/
+__pycache__/
+*.pyc
+dist/
+*.egg-info/
+tests/fixtures/

@@ -2,25 +2,36 @@
 
 from __future__ import annotations
 
+import json
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Union
 import requests
 
 from .exceptions import (
     AccessDeniedError,
     AuthenticationError,
     BadRequestError,
+    GeoRestrictedError,
     NotFoundError,
     PaymentRequiredError,
     RateLimitExceeded,
     ServerError,
+    StorageQuotaExceededError,
+    SystemOverloadError,
     VidNavigatorError,
 )
 from . import models
 
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/0.1.0"
+USER_AGENT = "vidnavigator-python/1.0.0"
+
+
+def _parse_model(model_cls: Any, raw: Any) -> Any:
+    """Parse JSON dict into a Pydantic model (v1: parse_obj, v2: model_validate)."""
+    if hasattr(model_cls, "model_validate"):
+        return model_cls.model_validate(raw)
+    return model_cls.parse_obj(raw)
 
 
 class VidNavigatorClient:
@@ -40,7 +51,7 @@ class VidNavigatorClient:
 
     def __init__(
         self,
-        api_key: str | None = None,
+        api_key: Optional[str] = None,
         *,
         base_url: str = DEFAULT_BASE_URL,
         timeout: int | float = 30,
@@ -48,16 +59,20 @@ class VidNavigatorClient:
     ) -> None:
         api_key = api_key or os.getenv("VIDNAVIGATOR_API_KEY")
         if not api_key:
-            raise AuthenticationError("API key was not provided. Pass it explicitly or set the VIDNAVIGATOR_API_KEY env var.")
+            raise AuthenticationError(
+                "API key was not provided. Pass it explicitly or set the VIDNAVIGATOR_API_KEY env var."
+            )
 
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
         self.session = session or requests.Session()
-        self.session.headers.update({
-            "X-API-Key": api_key,
-            "User-Agent": USER_AGENT,
-            "Accept": "application/json",
-        })
+        self.session.headers.update(
+            {
+                "X-API-Key": api_key,
+                "User-Agent": USER_AGENT,
+                "Accept": "application/json",
+            }
+        )
 
     # ---------------------------------------------------------------------
     # Internal helpers
@@ -68,11 +83,12 @@ class VidNavigatorClient:
         path: str,
         *,
         params: Optional[Dict[str, Any]] = None,
-        json: Optional[Dict[str, Any]] = None,
+        json_body: Optional[Dict[str, Any]] = None,
         data: Optional[Dict[str, Any]] = None,
         files: Any = None,
         stream: bool = False,
     ) -> Any:
+        body = json_body
         url = f"{self.base_url}{path}"
 
         try:
@@ -80,7 +96,7 @@ class VidNavigatorClient:
                 method,
                 url,
                 params=params,
-                json=json,
+                json=body,
                 data=data,
                 files=files,
                 timeout=self.timeout,
@@ -90,10 +106,8 @@ class VidNavigatorClient:
             raise VidNavigatorError(f"Request failed: {exc}") from exc
 
         if stream:
-            # For future use (e.g., downloading large files). Caller must handle.
             return response
 
-        # Attempt to parse JSON; fall back to text
         try:
             payload = response.json()
         except ValueError:
@@ -102,7 +116,6 @@ class VidNavigatorClient:
         if response.ok:
             return payload
 
-        # Map error codes to exceptions
         status_code = response.status_code
         error_msg = payload.get("message") or response.reason
 
@@ -114,12 +127,24 @@ class VidNavigatorClient:
             raise AccessDeniedError(error_msg)
         if status_code == 404:
             raise NotFoundError(error_msg)
+        if status_code == 413:
+            raise StorageQuotaExceededError(error_msg)
         if status_code == 429:
             raise RateLimitExceeded(error_msg)
+        if status_code == 451:
+            raise GeoRestrictedError(error_msg)
+        if status_code == 503:
+            retry_int = None
+            raw_retry = payload.get("retry_after_seconds")
+            if raw_retry is not None:
+                try:
+                    retry_int = int(raw_retry)
+                except (TypeError, ValueError):
+                    retry_int = None
+            raise SystemOverloadError(error_msg, retry_after_seconds=retry_int)
         if status_code >= 500:
             raise ServerError(error_msg)
 
-        # Fallback
         raise VidNavigatorError(f"Unexpected response ({status_code}): {error_msg}")
 
     # ---------------------------------------------------------------------
@@ -127,36 +152,72 @@ class VidNavigatorClient:
     # ---------------------------------------------------------------------
 
     # Transcripts ------------------------------------------------------------------
-    def get_transcript(self, *, video_url: str, language: Optional[str] = None) -> models.TranscriptResponse:
-        """Extract transcript from an online video.
+    def get_transcript(
+        self,
+        *,
+        video_url: str,
+        language: Optional[str] = None,
+        metadata_only: bool = False,
+        fallback_to_metadata: bool = False,
+        transcript_text: bool = False,
+    ) -> models.TranscriptResponse:
+        """Extract transcript from a non-YouTube online video.
 
-        Parameters
-        ----------
-        video_url: str
-            The full URL of the video (YouTube, Vimeo, etc.).
-        language: Optional[str]
-            Two-letter ISO language code (e.g., "en") if you want a specific language.
+        For YouTube URLs, use :meth:`get_youtube_transcript` instead.
         """
-        payload: Dict[str, Any] = {"video_url": video_url}
+        payload: Dict[str, Any] = {
+            "video_url": video_url,
+            "metadata_only": metadata_only,
+            "fallback_to_metadata": fallback_to_metadata,
+            "transcript_text": transcript_text,
+        }
         if language:
             payload["language"] = language
-        raw = self._request("POST", "/transcript", json=payload)
-        return models.TranscriptResponse.parse_obj(raw)
+        raw = self._request("POST", "/transcript", json_body=payload)
+        return _parse_model(models.TranscriptResponse, raw)
 
-    def transcribe_video(self, *, video_url: str) -> models.TranscriptResponse:
+    def get_youtube_transcript(
+        self,
+        *,
+        video_url: str,
+        language: Optional[str] = None,
+        metadata_only: bool = False,
+        fallback_to_metadata: bool = False,
+        transcript_text: bool = False,
+    ) -> models.TranscriptResponse:
+        """Extract transcript from a YouTube video."""
+        payload: Dict[str, Any] = {
+            "video_url": video_url,
+            "metadata_only": metadata_only,
+            "fallback_to_metadata": fallback_to_metadata,
+            "transcript_text": transcript_text,
+        }
+        if language:
+            payload["language"] = language
+        raw = self._request("POST", "/transcript/youtube", json_body=payload)
+        return _parse_model(models.TranscriptResponse, raw)
+
+    def transcribe_video(
+        self,
+        *,
+        video_url: str,
+        transcript_text: bool = False,
+        all_videos: bool = False,
+    ) -> Union[models.TranscriptResponse, models.TranscribeAllVideosResponse]:
         """Transcribe an online video using speech-to-text.
 
-        This is used for videos where a transcript is not readily available,
-        such as on Instagram or TikTok.
-
-        Parameters
-        ----------
-        video_url: str
-            The full URL of the video to transcribe.
+        When *all_videos* is True (carousel posts), the response shape includes
+        *carousel_info* and *videos* instead of a single *video_info*.
         """
-        payload = {"video_url": video_url}
-        raw = self._request("POST", "/transcribe", json=payload)
-        return models.TranscriptResponse.parse_obj(raw)
+        payload: Dict[str, Any] = {
+            "video_url": video_url,
+            "transcript_text": transcript_text,
+            "all_videos": all_videos,
+        }
+        raw = self._request("POST", "/transcribe", json_body=payload)
+        if all_videos:
+            return _parse_model(models.TranscribeAllVideosResponse, raw)
+        return _parse_model(models.TranscriptResponse, raw)
 
     # Files ------------------------------------------------------------------------
     def get_files(
@@ -165,33 +226,101 @@ class VidNavigatorClient:
         limit: int = 50,
         offset: int = 0,
         status: Optional[str] = None,
+        namespace_id: Optional[str] = None,
     ) -> models.FilesListResponse:
-        """Retrieve a paginated list of uploaded files."""
+        """Retrieve a paginated list of uploaded files.
+
+        Parameters
+        ----------
+        namespace_id:
+            Filter by namespace. Only files in this namespace are returned.
+        """
         params: Dict[str, Any] = {"limit": limit, "offset": offset}
         if status:
             params["status"] = status
+        if namespace_id is not None:
+            params["namespace_id"] = namespace_id
         raw = self._request("GET", "/files", params=params)
-        return models.FilesListResponse.parse_obj(raw)
+        return _parse_model(models.FilesListResponse, raw)
 
-    def get_file(self, file_id: str) -> models.FileResponse:
+    def get_file(
+        self,
+        file_id: str,
+        *,
+        transcript_text: bool = False,
+    ) -> models.FileResponse:
         """Retrieve details (and transcript) for a specific file."""
-        raw = self._request("GET", f"/file/{file_id}")
-        return models.FileResponse.parse_obj(raw)
+        params: Optional[Dict[str, Any]] = None
+        if transcript_text:
+            params = {"transcript_text": "true"}
+        raw = self._request("GET", f"/file/{file_id}", params=params)
+        return _parse_model(models.FileResponse, raw)
 
     # Analysis ---------------------------------------------------------------------
-    def analyze_video(self, *, video_url: str, query: Optional[str] = None) -> models.AnalysisResponse:
-        payload = {"video_url": video_url}
+    def analyze_video(
+        self,
+        *,
+        video_url: str,
+        query: Optional[str] = None,
+        transcript_text: bool = False,
+    ) -> models.AnalysisResponse:
+        payload: Dict[str, Any] = {"video_url": video_url, "transcript_text": transcript_text}
         if query:
             payload["query"] = query
-        raw = self._request("POST", "/analyze/video", json=payload)
-        return models.AnalysisResponse.parse_obj(raw)
+        raw = self._request("POST", "/analyze/video", json_body=payload)
+        return _parse_model(models.AnalysisResponse, raw)
 
-    def analyze_file(self, *, file_id: str, query: Optional[str] = None) -> models.AnalysisResponse:
-        payload = {"file_id": file_id}
+    def analyze_file(
+        self,
+        *,
+        file_id: str,
+        query: Optional[str] = None,
+        transcript_text: bool = False,
+    ) -> models.AnalysisResponse:
+        payload: Dict[str, Any] = {"file_id": file_id, "transcript_text": transcript_text}
         if query:
             payload["query"] = query
-        raw = self._request("POST", "/analyze/file", json=payload)
-        return models.AnalysisResponse.parse_obj(raw)
+        raw = self._request("POST", "/analyze/file", json_body=payload)
+        return _parse_model(models.AnalysisResponse, raw)
+
+    # Extraction -------------------------------------------------------------------
+    def extract_video_data(
+        self,
+        *,
+        video_url: str,
+        schema: Dict[str, Any],
+        what_to_extract: Optional[str] = None,
+        include_usage: bool = False,
+    ) -> models.ExtractionApiResponse:
+        """Extract structured data from an online video transcript using a custom schema."""
+        payload: Dict[str, Any] = {
+            "video_url": video_url,
+            "schema": schema,
+            "include_usage": include_usage,
+        }
+        if what_to_extract is not None:
+            payload["what_to_extract"] = what_to_extract
+        raw = self._request("POST", "/extract/video", json_body=payload)
+        return _parse_model(models.ExtractionApiResponse, raw)
+
+    def extract_file_data(
+        self,
+        *,
+        file_id: str,
+        schema: Dict[str, Any],
+        what_to_extract: Optional[str] = None,
+        include_usage: bool = False,
+    ) -> models.ExtractionApiResponse:
+        """Extract structured data from an uploaded file's transcript using a custom schema."""
+        payload: Dict[str, Any] = {
+            "file_id": file_id,
+            "schema": schema,
+            "include_usage": include_usage,
+        }
+        if what_to_extract is not None:
+            payload["what_to_extract"] = what_to_extract
+        raw = self._request("POST", "/extract/file", json_body=payload)
+        return _parse_model(models.ExtractionApiResponse, raw)
 
     # Search -----------------------------------------------------------------------
     def search_videos(
@@ -215,15 +344,70 @@ class VidNavigatorClient:
             payload["end_year"] = end_year
         if duration is not None:
             payload["duration"] = duration
-        raw = self._request("POST", "/search/video", json=payload)
-        return models.VideoSearchResponse.parse_obj(raw)
+        raw = self._request("POST", "/search/video", json_body=payload)
+        return _parse_model(models.VideoSearchResponse, raw)
 
-    def search_files(self, *, query: str) -> models.FileSearchResponse:
-        raw = self._request("POST", "/search/file", json={"query": query})
-        return models.FileSearchResponse.parse_obj(raw)
+    def search_files(
+        self,
+        *,
+        query: str,
+        namespace_ids: Optional[List[str]] = None,
+    ) -> models.FileSearchResponse:
+        payload: Dict[str, Any] = {"query": query}
+        if namespace_ids is not None:
+            payload["namespace_ids"] = namespace_ids
+        raw = self._request("POST", "/search/file", json_body=payload)
+        return _parse_model(models.FileSearchResponse, raw)
+
+    # Namespaces -------------------------------------------------------------------
+    def get_namespaces(self) -> models.NamespaceListResponse:
+        """List all namespaces for the authenticated user."""
+        raw = self._request("GET", "/namespaces")
+        return _parse_model(models.NamespaceListResponse, raw)
+
+    def create_namespace(self, name: str) -> models.NamespaceResponse:
+        """Create a new namespace."""
+        raw = self._request("POST", "/namespaces", json_body={"name": name})
+        return _parse_model(models.NamespaceResponse, raw)
+
+    def update_namespace(self, namespace_id: str, name: str) -> models.MessageResponse:
+        """Rename a namespace."""
+        raw = self._request(
+            "PUT",
+            f"/namespaces/{namespace_id}",
+            json_body={"name": name},
+        )
+        return _parse_model(models.MessageResponse, raw)
+
+    def delete_namespace(self, namespace_id: str) -> models.MessageResponse:
+        """Delete a namespace."""
+        raw = self._request("DELETE", f"/namespaces/{namespace_id}")
+        return _parse_model(models.MessageResponse, raw)
+
+    def update_file_namespaces(
+        self,
+        file_id: str,
+        namespace_ids: List[str],
+    ) -> models.FileNamespacesResponse:
+        """Replace namespace assignments for a file.
+
+        Returns the updated *namespace_ids* and resolved *namespaces*.
+        """
+        raw = self._request(
+            "PUT",
+            f"/file/{file_id}/namespaces",
+            json_body={"namespace_ids": namespace_ids},
+        )
+        return _parse_model(models.FileNamespacesResponse, raw)
 
     # Uploads ----------------------------------------------------------------------
-    def upload_file(self, file_path: str, *, wait_for_completion: bool = False) -> Dict[str, Any]:
+    def upload_file(
+        self,
+        file_path: str,
+        *,
+        wait_for_completion: bool = False,
+        namespace_ids: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
         """Upload an audio or video file.
 
         Parameters
@@ -232,13 +416,20 @@ class VidNavigatorClient:
             Path to the local file.
         wait_for_completion: bool
             If *True*, the call will wait until processing finishes before returning.
+        namespace_ids: Optional[List[str]]
+            Namespace IDs to assign (sent as a JSON array string per API spec).
         """
         if not os.path.isfile(file_path):
             raise FileNotFoundError(file_path)
 
+        data: Dict[str, Any] = {
+            "wait_for_completion": "true" if wait_for_completion else "false",
+        }
+        if namespace_ids is not None:
+            data["namespace_ids"] = json.dumps(namespace_ids)
+
         with open(file_path, "rb") as fp:
             files = {"file": fp}
-            data = {"wait_for_completion": "true" if wait_for_completion else "false"}
             return self._request("POST", "/upload/file", data=data, files=files)
 
     def retry_file_processing(self, file_id: str) -> Dict[str, Any]:
@@ -257,10 +448,9 @@ class VidNavigatorClient:
     def get_usage(self) -> models.UsageResponse:
         """Retrieve current API usage and storage information."""
         raw = self._request("GET", "/usage")
-        return models.UsageResponse.parse_obj(raw)
+        return _parse_model(models.UsageResponse, raw)
 
     def health_check(self) -> Dict[str, Any]:
-        # This endpoint does not require auth; we call it anyway on same session.
         return self._request("GET", "/health")
 
     # Convenience ------------------------------------------------------------------
@@ -272,4 +462,4 @@ class VidNavigatorClient:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        self.close() 
+        self.close()
