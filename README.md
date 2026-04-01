@@ -19,7 +19,22 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | File upload, storage, and management | -- | Yes |
 | Namespace organization and scoped search | -- | Yes |
 
-**Supported video platforms:** YouTube, Vimeo, X/Twitter, TikTok, Instagram (including carousel posts), Facebook, Dailymotion, Loom, and more.
+## Supported Platforms
+
+| Platform | Transcript | Transcribe (speech-to-text) | Carousel |
+|----------|:----------:|:---------------------------:|:--------:|
+| YouTube | Yes | - | - |
+| Instagram Reels | - | Yes | Yes |
+| Instagram Posts | - | Yes | Yes (`all_videos`) |
+| TikTok | Yes | Yes | - |
+| X / Twitter | Yes | Yes | - |
+| Vimeo | Yes | Yes | - |
+| Facebook | Yes | Yes | - |
+| Dailymotion | Yes | Yes | - |
+| Loom | Yes | Yes | - |
+| Uploaded files | Yes | Yes | - |
+
+> **Transcript** = fast caption/subtitle extraction via `get_transcript`. **Transcribe** = speech-to-text via AI models via `transcribe_video` (works when captions are unavailable).
 
 **Supported upload formats:** mp4, webm, mov, avi, wmv, flv, mkv, m4a, mp3, mpeg, mpga, wav.
 
@@ -73,9 +88,12 @@ for segment in resp.data.transcript:
 # ...
 ```
 
-### Other platforms (Vimeo, X/Twitter, TikTok, Instagram, etc.)
+### Other platforms (Vimeo, X/Twitter, TikTok, etc.)
+
+For most non-YouTube platforms, you can use either `get_transcript` (fast, caption-based) or `transcribe_video` (speech-to-text). **Note:** Instagram only supports `transcribe_video`.
 
 ```python
+# TikTok (can use get_transcript or transcribe_video)
 resp = client.get_transcript(
     video_url="https://www.tiktok.com/@user/video/1234567890",
 )
@@ -243,7 +261,6 @@ Search across your indexed videos or uploaded files using natural language. Resu
 results = client.search_videos(
     query="how to train a neural network from scratch",
     start_year=2023,
-    focus="relevance",
 )
 
 print(f"Found {results.data.total_found} results")
