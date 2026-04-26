@@ -35,6 +35,7 @@ def test_extract_video_data_posts_correct_path_and_body(client):
         json_body={
             "video_url": "https://youtube.com/watch?v=abc",
             "schema": schema,
+            "transcribe": True,
             "include_usage": True,
             "what_to_extract": "Focus on the intro",
         },
@@ -44,6 +45,18 @@ def test_extract_video_data_posts_correct_path_and_body(client):
     assert resp.usage is not None
     assert resp.usage.prompt_tokens == 10
     assert resp.usage.total_tokens == 15
+
+
+def test_extract_video_data_can_disable_auto_transcription(client):
+    raw = {"status": "success", "data": {}}
+    with patch.object(client, "_request", return_value=raw) as req:
+        client.extract_video_data(
+            video_url="https://example.com/v",
+            schema={"x": {"type": "String", "description": "x"}},
+            transcribe=False,
+        )
+    _, called_kwargs = req.call_args
+    assert called_kwargs["json_body"]["transcribe"] is False
 
 
 def test_extract_video_data_omits_what_to_extract_when_none(client):

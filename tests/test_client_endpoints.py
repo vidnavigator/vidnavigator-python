@@ -1,5 +1,6 @@
 """Unit tests for all client methods (mocked HTTP, no API key needed)."""
 
+from datetime import date, datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +19,10 @@ from vidnavigator.models import (
     NamespaceResponse,
     MessageResponse,
     UsageResponse,
+    HealthResponse,
+    TikTokProfileSubmitResponse,
+    TikTokProfileResponse,
+    TweetStatementResponse,
 )
 
 
@@ -78,7 +83,7 @@ def test_get_youtube_transcript(client):
         resp = client.get_youtube_transcript(video_url="https://youtube.com/watch?v=x")
     assert isinstance(resp, TranscriptResponse)
     args, _ = req.call_args
-    assert args[1] == "/transcript/youtube"
+    assert args[1] == "/youtube/transcript"
 
 
 def test_transcript_text_returns_string(client):
@@ -378,7 +383,13 @@ USAGE_RAW = {
     "status": "success",
     "data": {
         "credits": {"monthly_total": 500, "monthly_remaining": 480, "purchased": 0},
-        "usage": {"video_transcripts": {"used": 3}, "youtube_transcripts": {"used": 7}},
+        "usage": {
+            "standard_request": {"used": 3},
+            "residential_request": {"used": 7},
+            "search_request": {"used": 2},
+            "analysis_request": {"used": 1},
+            "transcription_hour": {"used": 0.5, "unit": "hours"},
+        },
         "channels_indexed": {"used": 1, "limit": 5, "remaining": 4, "percentage": 20.0},
         "storage": {
             "used_bytes": 1024,
@@ -400,11 +411,128 @@ def test_get_usage(client):
     d = resp.data
     assert d.credits.monthly_total == 500
     assert d.credits.purchased == 0
-    assert d.usage.video_transcripts.used == 3
-    assert d.usage.youtube_transcripts.used == 7
+    assert d.usage.standard_request.used == 3
+    assert d.usage.residential_request.used == 7
+    assert d.usage.search_request.used == 2
+    assert d.usage.analysis_request.used == 1
+    assert d.usage.transcription_hour.unit == "hours"
     assert d.channels_indexed.used == 1
     assert d.channels_indexed.percentage == 20.0
     assert d.storage.used_formatted == "1 KB"
+
+
+# ---------------------------------------------------------------------------
+# TikTok
+# ---------------------------------------------------------------------------
+
+def test_submit_tiktok_profile_scrape(client):
+    raw = {
+        "status": "success",
+        "data": {
+            "task_id": "task_123",
+            "task_status": "processing",
+            "profile_url": "https://www.tiktok.com/@tiktok",
+            "expires_at": "2026-04-26T12:00:00Z",
+            "check_status_url": "/v1/tiktok/profile/task_123",
+            "message": "Task accepted",
+        },
+    }
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.submit_tiktok_profile_scrape(
+            profile_url="https://www.tiktok.com/@tiktok",
+            max_posts=100,
+            after_date=date(2024, 1, 1),
+            before_date=datetime(2024, 12, 31, 10, 30, tzinfo=timezone.utc),
+            min_likes=1000,
+        )
+    assert isinstance(resp, TikTokProfileSubmitResponse)
+    assert resp.data.task_id == "task_123"
+    req.assert_called_once_with(
+        "POST",
+        "/tiktok/profile",
+        json_body={
+            "profile_url": "https://www.tiktok.com/@tiktok",
+            "max_posts": 100,
+            "after_date": "2024-01-01",
+            "before_date": "2024-12-31",
+            "min_likes": 1000,
+        },
+    )
+
+
+def test_get_tiktok_profile_scrape(client):
+    raw = {
+        "status": "success",
+        "data": {
+            "task_id": "task_123",
+            "task_status": "completed",
+            "profile_url": "https://www.tiktok.com/@tiktok",
+            "profile": {"uploader": "tiktok"},
+            "filters": {"max_posts": "10", "after_date": "2024-01-01"},
+            "stats": {"videos_scanned": "10", "videos_matched": "1", "pages_consumed": "1"},
+            "videos": [
+                {
+                    "id": "v1",
+                    "title": "Demo",
+                    "timestamp": "1776892618",
+                    "published_at": "2026-04-22T21:16:58+00:00",
+                    "views": "1,234",
+                    "likes": "123",
+                    "reposts": "4",
+                    "comments": "5",
+                    "url": "https://www.tiktok.com/@tiktok/video/1",
+                }
+            ],
+            "pagination": {"limit": "50", "offset": "0", "total_items": "1", "has_next": False, "has_prev": False},
+            "download_url": "https://storage.googleapis.com/bucket/task.json",
+        },
+    }
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.get_tiktok_profile_scrape("task_123", cursor="abc", limit=25)
+    assert isinstance(resp, TikTokProfileResponse)
+    assert resp.data.filters.max_posts == 10
+    assert resp.data.stats.videos_scanned == 10
+    assert resp.data.videos[0].views == 1234
+    assert resp.data.videos[0].likes == 123
+    assert resp.data.videos[0].published_at.isoformat() == "2026-04-22T21:16:58+00:00"
+    assert resp.data.pagination.total_items == 1
+    req.assert_called_once_with(
+        "GET",
+        "/tiktok/profile/task_123",
+        params={"limit": 25, "cursor": "abc"},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tweet analysis
+# ---------------------------------------------------------------------------
+
+def test_get_tweet_statement(client):
+    raw = {
+        "status": "success",
+        "data": {
+            "final_statement": "The author claims something nuanced.",
+            "statement_query": "nuanced claim",
+            "detailed_analysis": "A short analysis.",
+            "topics": ["media"],
+            "entities": ["Example"],
+            "claim_type": "factual_claim",
+            "intent": "inform",
+            "tone": "serious",
+            "emotion": "curiosity",
+            "authority": "data_driven",
+            "tweet_text": "Example tweet",
+        },
+    }
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.get_tweet_statement(tweet_id="1234567890")
+    assert isinstance(resp, TweetStatementResponse)
+    assert resp.data.final_statement.startswith("The author")
+    req.assert_called_once_with(
+        "POST",
+        "/tweet/statement",
+        json_body={"tweet_id": "1234567890"},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +540,14 @@ def test_get_usage(client):
 # ---------------------------------------------------------------------------
 
 def test_health_check(client):
-    raw = {"status": "success", "message": "OK", "version": "1.0.0"}
+    raw = {
+        "status": "success",
+        "message": "OK",
+        "version": "1.0.0",
+        "endpoints": [{"path": "/health", "method": "GET", "auth_required": False}],
+    }
     with patch.object(client, "_request", return_value=raw):
         resp = client.health_check()
-    assert resp["status"] == "success"
+    assert isinstance(resp, HealthResponse)
+    assert resp.status == "success"
+    assert resp.endpoints[0].path == "/health"

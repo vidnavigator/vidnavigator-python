@@ -2,14 +2,18 @@
 
 Require VIDNAVIGATOR_API_KEY environment variable. Skipped automatically
 when the key is not set, so ``pytest tests/`` remains safe to run offline.
+Set VIDNAVIGATOR_BASE_URL to test a local or staging API.
 
 Run only integration tests:
     pytest tests/test_integration.py -v
 """
 
+import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
+from urllib.request import urlopen
 
 try:
     from dotenv import load_dotenv
@@ -27,23 +31,41 @@ def _dump(obj):
 
 
 _api_key = os.getenv("VIDNAVIGATOR_API_KEY")
+_base_url = os.getenv("VIDNAVIGATOR_BASE_URL")
 pytestmark = pytest.mark.skipif(not _api_key, reason="VIDNAVIGATOR_API_KEY not set")
 
 TEST_VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+TEST_TIKTOK_PROFILE_URL = os.getenv("VIDNAVIGATOR_TIKTOK_PROFILE_URL")
+TEST_TWEET_ID = os.getenv("VIDNAVIGATOR_TWEET_ID")
+TIKTOK_TIMEOUT_SECONDS = int(os.getenv("VIDNAVIGATOR_TIKTOK_TIMEOUT_SECONDS", "180"))
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 TEST_VIDEO_FILE = FIXTURES_DIR / "video-test.mp4"
 
 
 @pytest.fixture(scope="module")
 def client():
-    return VidNavigatorClient(api_key=_api_key, timeout=120)
+    kwargs = {"api_key": _api_key, "timeout": 120}
+    if _base_url:
+        kwargs["base_url"] = _base_url
+    return VidNavigatorClient(**kwargs)
+
+
+def _wait_for_tiktok_scrape(client, task_id):
+    deadline = time.time() + TIKTOK_TIMEOUT_SECONDS
+    while True:
+        result = client.get_tiktok_profile_scrape(task_id, limit=5)
+        if result.data.task_status != "processing":
+            return result
+        if time.time() >= deadline:
+            pytest.fail(f"TikTok scrape did not finish within {TIKTOK_TIMEOUT_SECONDS}s")
+        time.sleep(5)
 
 
 # -- System ----------------------------------------------------------------
 
 def test_health_check(client):
     health = client.health_check()
-    assert health["status"] == "success"
+    assert health.status == "success"
 
 
 def test_usage(client):
@@ -154,6 +176,67 @@ def test_extract_video_data_with_usage(client):
     assert resp.status == "success"
     if resp.usage:
         assert resp.usage.total_tokens > 0
+
+
+def test_extract_video_data_with_transcribe_option(client):
+    resp = client.extract_video_data(
+        video_url=TEST_VIDEO_URL,
+        schema={
+            "short_summary": {
+                "type": "String",
+                "description": "A short summary of the video",
+            },
+        },
+        transcribe=False,
+    )
+    assert resp.status == "success"
+    assert isinstance(resp.data, dict)
+
+
+# -- TikTok profile scrape --------------------------------------------------
+
+@pytest.mark.skipif(
+    not TEST_TIKTOK_PROFILE_URL,
+    reason="VIDNAVIGATOR_TIKTOK_PROFILE_URL not set",
+)
+def test_tiktok_profile_scrape_lifecycle(client):
+    task = client.submit_tiktok_profile_scrape(
+        profile_url=TEST_TIKTOK_PROFILE_URL,
+        max_posts=2,
+    )
+    assert task.status == "success"
+    assert task.data.task_id
+
+    result = _wait_for_tiktok_scrape(client, task.data.task_id)
+    assert result.status == "success"
+    assert result.data.task_status == "completed"
+    assert result.data.videos is not None
+    assert result.data.pagination is not None
+
+    if result.data.videos:
+        first_video = result.data.videos[0]
+        assert first_video.url
+        if first_video.published_at:
+            assert isinstance(first_video.published_at, datetime)
+        for metric in (first_video.views, first_video.likes, first_video.reposts, first_video.comments):
+            if metric is not None:
+                assert isinstance(metric, int)
+
+    if result.data.download_url:
+        with urlopen(result.data.download_url) as response:
+            downloaded = json.load(response)
+        assert isinstance(downloaded, dict)
+        assert isinstance(downloaded.get("videos", []), list)
+
+
+# -- Tweet analysis ---------------------------------------------------------
+
+@pytest.mark.skipif(not TEST_TWEET_ID, reason="VIDNAVIGATOR_TWEET_ID not set")
+def test_tweet_statement(client):
+    resp = client.get_tweet_statement(tweet_id=TEST_TWEET_ID)
+    assert resp.status == "success"
+    assert resp.data.final_statement
+    assert resp.data.statement_query
 
 
 # -- File upload + extract lifecycle ----------------------------------------

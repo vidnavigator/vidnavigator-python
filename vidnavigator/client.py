@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Union
 import requests
 
@@ -33,6 +34,15 @@ def _parse_model(model_cls: Any, raw: Any) -> Any:
     if hasattr(model_cls, "model_validate"):
         return model_cls.model_validate(raw)
     return model_cls.parse_obj(raw)
+
+
+def _format_yyyy_mm_dd(value: Union[str, date, datetime]) -> str:
+    """Serialize TikTok profile date filters in API-required YYYY-MM-DD format."""
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    return value
 
 
 class VidNavigatorClient:
@@ -195,7 +205,7 @@ class VidNavigatorClient:
         }
         if language:
             payload["language"] = language
-        raw = self._request("POST", "/transcript/youtube", json_body=payload)
+        raw = self._request("POST", "/youtube/transcript", json_body=payload)
         return _parse_model(models.TranscriptResponse, raw)
 
     def transcribe_video(
@@ -291,18 +301,64 @@ class VidNavigatorClient:
         video_url: str,
         schema: Dict[str, Any],
         what_to_extract: Optional[str] = None,
+        transcribe: bool = True,
         include_usage: bool = False,
     ) -> models.ExtractionApiResponse:
         """Extract structured data from an online video transcript using a custom schema."""
         payload: Dict[str, Any] = {
             "video_url": video_url,
             "schema": schema,
+            "transcribe": transcribe,
             "include_usage": include_usage,
         }
         if what_to_extract is not None:
             payload["what_to_extract"] = what_to_extract
         raw = self._request("POST", "/extract/video", json_body=payload)
         return _parse_model(models.ExtractionApiResponse, raw)
+
+    # TikTok -----------------------------------------------------------------------
+    def submit_tiktok_profile_scrape(
+        self,
+        *,
+        profile_url: str,
+        max_posts: Optional[int] = None,
+        after_date: Optional[Union[str, date, datetime]] = None,
+        before_date: Optional[Union[str, date, datetime]] = None,
+        min_likes: Optional[int] = None,
+        max_likes: Optional[int] = None,
+    ) -> models.TikTokProfileSubmitResponse:
+        """Start an async TikTok profile scrape and return the task metadata.
+
+        Date filters must be YYYY-MM-DD strings. ``date`` and ``datetime`` values
+        are accepted and serialized to that format automatically.
+        """
+        payload: Dict[str, Any] = {"profile_url": profile_url}
+        if max_posts is not None:
+            payload["max_posts"] = max_posts
+        if after_date is not None:
+            payload["after_date"] = _format_yyyy_mm_dd(after_date)
+        if before_date is not None:
+            payload["before_date"] = _format_yyyy_mm_dd(before_date)
+        if min_likes is not None:
+            payload["min_likes"] = min_likes
+        if max_likes is not None:
+            payload["max_likes"] = max_likes
+        raw = self._request("POST", "/tiktok/profile", json_body=payload)
+        return _parse_model(models.TikTokProfileSubmitResponse, raw)
+
+    def get_tiktok_profile_scrape(
+        self,
+        task_id: str,
+        *,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+    ) -> models.TikTokProfileResponse:
+        """Poll an async TikTok profile scrape task and retrieve a page of videos."""
+        params: Dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        raw = self._request("GET", f"/tiktok/profile/{task_id}", params=params)
+        return _parse_model(models.TikTokProfileResponse, raw)
 
     def extract_file_data(
         self,
@@ -454,8 +510,15 @@ class VidNavigatorClient:
         raw = self._request("GET", "/usage")
         return _parse_model(models.UsageResponse, raw)
 
-    def health_check(self) -> Dict[str, Any]:
-        return self._request("GET", "/health")
+    def health_check(self) -> models.HealthResponse:
+        raw = self._request("GET", "/health")
+        return _parse_model(models.HealthResponse, raw)
+
+    # Tweet analysis ---------------------------------------------------------------
+    def get_tweet_statement(self, *, tweet_id: str) -> models.TweetStatementResponse:
+        """Extract a structured claim analysis from an X/Twitter tweet."""
+        raw = self._request("POST", "/tweet/statement", json_body={"tweet_id": tweet_id})
+        return _parse_model(models.TweetStatementResponse, raw)
 
     # Convenience ------------------------------------------------------------------
     def close(self) -> None:

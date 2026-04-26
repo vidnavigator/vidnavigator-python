@@ -18,6 +18,8 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Semantic search across content | Yes | Yes |
 | File upload, storage, and management | -- | Yes |
 | Namespace organization and scoped search | -- | Yes |
+| TikTok profile scraping | Yes | -- |
+| Tweet claim analysis | Yes | -- |
 
 ## Supported Platforms
 
@@ -212,6 +214,7 @@ resp = client.extract_video_data(
         },
     },
     what_to_extract="Focus on the tone and content of the lyrics.",
+    transcribe=True,  # auto-transcribe non-YouTube videos when captions are unavailable
 )
 
 print(resp.data)
@@ -247,6 +250,137 @@ resp = client.extract_video_data(
 )
 if resp.usage:
     print(f"Tokens used: {resp.usage.total_tokens}")
+```
+
+---
+
+## TikTok Profile Scraping
+
+TikTok profile scraping is asynchronous. Submit the scrape first, then poll until the task is no longer `processing` before reading videos:
+
+```python
+import time
+
+task = client.submit_tiktok_profile_scrape(
+    profile_url="https://www.tiktok.com/@tiktok",
+    max_posts=100,
+    after_date="2024-01-01",
+)
+
+task_id = task.data.task_id
+
+while True:
+    result = client.get_tiktok_profile_scrape(task_id, limit=50)
+    if result.data.task_status != "processing":
+        break
+    time.sleep(5)
+
+if result.data.task_status == "failed":
+    raise RuntimeError(result.data.error_message or "TikTok scrape failed")
+```
+
+### Read results with pagination
+
+Use cursor pagination when you want to process videos page by page:
+
+```python
+cursor = None
+
+while True:
+    page = client.get_tiktok_profile_scrape(task_id, cursor=cursor, limit=50)
+
+    for video in page.data.videos or []:
+        print(video.title, video.published_at, video.likes, video.url)
+
+    pagination = page.data.pagination
+    if not pagination or not pagination.has_next:
+        break
+    cursor = pagination.next_cursor
+```
+
+### Download the full profile result
+
+For large profiles, use `download_url` when it is returned. It points to a short-lived JSON file containing the complete scrape result:
+
+```python
+import json
+from urllib.request import urlopen
+
+completed = client.get_tiktok_profile_scrape(task_id)
+
+if completed.data.download_url:
+    with urlopen(completed.data.download_url) as response:
+        full_profile = json.load(response)
+
+    for video in full_profile.get("videos", []):
+        print(video.get("title"), video.get("published_at"), video.get("likes"), video.get("url"))
+```
+
+`after_date` and `before_date` use `YYYY-MM-DD` format. You can pass strings in that format, or Python `date` / `datetime` objects. In typed SDK responses, `video.published_at` is parsed as a Python `datetime`, and numeric fields such as `views`, `likes`, `reposts`, and `comments` are integers.
+
+### Use scraped videos with transcripts or extraction
+
+Each TikTok video has a `url`, so you can pass it to the normal transcript, transcription, analysis, or extraction methods. If you used pagination, loop through `result.data.videos`; if you used `download_url`, loop through `full_profile["videos"]`.
+
+```python
+for video in result.data.videos or []:
+    if not video.url:
+        continue
+
+    transcript = client.get_transcript(
+        video_url=video.url,
+        transcript_text=True,
+        fallback_to_metadata=True,
+    )
+    print(transcript.data.transcript)
+```
+
+For downloaded JSON results, use dictionary access:
+
+```python
+for video in full_profile.get("videos", []):
+    video_url = video.get("url")
+    if not video_url:
+        continue
+
+    transcript = client.get_transcript(video_url=video_url, transcript_text=True)
+    print(transcript.data.transcript)
+```
+
+```python
+schema = {
+    "hook": {
+        "type": "String",
+        "description": "The opening hook or main attention grabber",
+    },
+    "products": {
+        "type": "Array",
+        "description": "Products, brands, or offers mentioned in the video",
+    },
+}
+
+for video in result.data.videos or []:
+    if not video.url:
+        continue
+
+    extracted = client.extract_video_data(
+        video_url=video.url,
+        schema=schema,
+        what_to_extract="Extract marketing hooks and mentioned products.",
+        transcribe=True,
+    )
+    print(video.url, extracted.data)
+```
+
+---
+
+## Tweet Claim Analysis
+
+```python
+resp = client.get_tweet_statement(tweet_id="1234567890123456789")
+
+print(resp.data.final_statement)
+print(resp.data.claim_type)
 ```
 
 ---
@@ -415,8 +549,11 @@ print(f"Credits: {usage.credits.monthly_remaining} / {usage.credits.monthly_tota
 print(f"Storage: {usage.storage.used_formatted} / {usage.storage.limit_formatted}")
 
 if usage.usage:
-    print(f"Transcripts this period: {usage.usage.video_transcripts.used}")
-    print(f"Searches this period: {usage.usage.video_searches.used}")
+    print(f"Standard requests: {usage.usage.standard_request.used}")
+    print(f"Residential requests: {usage.usage.residential_request.used}")
+    print(f"Search requests: {usage.usage.search_request.used}")
+    print(f"Analysis requests: {usage.usage.analysis_request.used}")
+    print(f"Transcription hours: {usage.usage.transcription_hour.used}")
 ```
 
 ---

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
@@ -208,6 +209,24 @@ def _normalize_date(v: Any) -> Optional[str]:
     return str(v)
 
 
+def _coerce_optional_int(v: Any) -> Optional[int]:
+    """Normalize API integer fields that may arrive as numeric strings."""
+    if v is None:
+        return None
+    if isinstance(v, bool):
+        return int(v)
+    if isinstance(v, int):
+        return v
+    if isinstance(v, float):
+        return int(v)
+    if isinstance(v, str):
+        stripped = v.strip().replace(",", "")
+        if not stripped:
+            return None
+        return int(float(stripped))
+    return v  # type: ignore[return-value]
+
+
 class Namespace(BaseModel):
     """API may return Mongo-style ``_id``; it is exposed as *mongo_id*."""
 
@@ -228,6 +247,107 @@ class ExtractionTokenUsage(BaseModel):
     prompt_tokens: Optional[int] = Field(None, alias="prompt_tokens")
     completion_tokens: Optional[int] = Field(None, alias="completion_tokens")
     total_tokens: Optional[int] = Field(None, alias="total_tokens")
+
+
+class TikTokVideo(BaseModel):
+    id: Optional[str] = None
+    track: Optional[str] = None
+    artists: Optional[List[str]] = None
+    duration: Optional[int] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    timestamp: Optional[int] = None
+    published_at: Optional[datetime] = Field(None, alias="published_at")
+    views: Optional[int] = None
+    likes: Optional[int] = None
+    reposts: Optional[int] = None
+    comments: Optional[int] = None
+    thumbnails: Optional[List[Dict[str, Any]]] = None
+    url: Optional[str] = None
+
+    @_pre_validator("duration", "timestamp", "views", "likes", "reposts", "comments")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokProfileFilters(BaseModel):
+    max_posts: Optional[int] = Field(None, alias="max_posts")
+    after_date: Optional[str] = Field(None, alias="after_date")
+    before_date: Optional[str] = Field(None, alias="before_date")
+    min_likes: Optional[int] = Field(None, alias="min_likes")
+    max_likes: Optional[int] = Field(None, alias="max_likes")
+
+    @_pre_validator("max_posts", "min_likes", "max_likes")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokProfileStats(BaseModel):
+    videos_scanned: Optional[int] = Field(None, alias="videos_scanned")
+    videos_matched: Optional[int] = Field(None, alias="videos_matched")
+    pages_consumed: Optional[int] = Field(None, alias="pages_consumed")
+
+    @_pre_validator("videos_scanned", "videos_matched", "pages_consumed")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokProfilePagination(BaseModel):
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    total_items: Optional[int] = Field(None, alias="total_items")
+    has_next: Optional[bool] = Field(None, alias="has_next")
+    has_prev: Optional[bool] = Field(None, alias="has_prev")
+    next_cursor: Optional[str] = Field(None, alias="next_cursor")
+    prev_cursor: Optional[str] = Field(None, alias="prev_cursor")
+
+    @_pre_validator("limit", "offset", "total_items")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokProfileTask(BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    profile_url: Optional[str] = Field(None, alias="profile_url")
+    profile: Optional[Dict[str, Any]] = None
+    filters: Optional[TikTokProfileFilters] = None
+    stats: Optional[TikTokProfileStats] = None
+    videos: Optional[List[TikTokVideo]] = None
+    pagination: Optional[TikTokProfilePagination] = None
+    download_url: Optional[str] = Field(None, alias="download_url")
+    error_message: Optional[str] = Field(None, alias="error_message")
+    created_at: Optional[str] = Field(None, alias="created_at")
+    completed_at: Optional[str] = Field(None, alias="completed_at")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+
+
+class TweetStatementData(BaseModel):
+    final_statement: Optional[str] = Field(None, alias="final_statement")
+    statement_query: Optional[str] = Field(None, alias="statement_query")
+    detailed_analysis: Optional[str] = Field(None, alias="detailed_analysis")
+    topics: Optional[List[str]] = None
+    entities: Optional[List[str]] = None
+    claim_type: Optional[str] = Field(None, alias="claim_type")
+    intent: Optional[str] = None
+    tone: Optional[str] = None
+    emotion: Optional[str] = None
+    authority: Optional[str] = None
+    tweet_text: Optional[str] = Field(None, alias="tweet_text")
+    tweet_media_summary: Optional[str] = Field(None, alias="tweet_media_summary")
+    quoted_tweet_text: Optional[str] = Field(None, alias="quoted_tweet_text")
+    quoted_media_summary: Optional[str] = Field(None, alias="quoted_media_summary")
+
+
+class HealthEndpoint(BaseModel):
+    path: Optional[str] = None
+    method: Optional[str] = None
+    description: Optional[str] = None
+    auth_required: Optional[bool] = Field(None, alias="auth_required")
 
 
 # ---------------------------------------------------------------------------
@@ -327,7 +447,33 @@ class NamespaceResponse(BaseModel):
 class ExtractionApiResponse(BaseModel):
     status: str
     data: Dict[str, Any]
+    video_info: Optional[VideoInfo] = Field(None, alias="video_info")
+    file_info: Optional[FileInfo] = Field(None, alias="file_info")
     usage: Optional[ExtractionTokenUsage] = None
+
+
+class TikTokProfileSubmitData(BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    profile_url: Optional[str] = Field(None, alias="profile_url")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+    check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    message: Optional[str] = None
+
+
+class TikTokProfileSubmitResponse(BaseModel):
+    status: str
+    data: TikTokProfileSubmitData
+
+
+class TikTokProfileResponse(BaseModel):
+    status: str
+    data: TikTokProfileTask
+
+
+class TweetStatementResponse(BaseModel):
+    status: str
+    data: TweetStatementData
 
 
 class FileNamespacesData(BaseModel):
@@ -401,6 +547,11 @@ class Subscription(BaseModel):
 
 
 class UsageDetails(BaseModel):
+    standard_request: Optional[ActivityCount] = None
+    residential_request: Optional[ActivityCount] = None
+    search_request: Optional[ActivityCount] = None
+    analysis_request: Optional[ActivityCount] = None
+    transcription_hour: Optional[ActivityCount] = None
     video_transcripts: Optional[ActivityCount] = None
     youtube_transcripts: Optional[ActivityCount] = None
     video_searches: Optional[ActivityCount] = None
@@ -423,3 +574,10 @@ class UsageData(BaseModel):
 class UsageResponse(BaseModel):
     status: str
     data: UsageData
+
+
+class HealthResponse(BaseModel):
+    status: str
+    message: Optional[str] = None
+    version: Optional[str] = None
+    endpoints: Optional[List[HealthEndpoint]] = None
