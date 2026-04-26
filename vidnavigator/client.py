@@ -26,7 +26,7 @@ from . import models
 
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/1.0.1"
+USER_AGENT = "vidnavigator-python/1.0.2"
 
 
 def _parse_model(model_cls: Any, raw: Any) -> Any:
