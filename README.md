@@ -264,7 +264,7 @@ import time
 task = client.submit_tiktok_profile_scrape(
     profile_url="https://www.tiktok.com/@tiktok",
     max_posts=100,
-    after_date="2024-01-01",
+    after_datetime="2024-01-01",
 )
 
 task_id = task.data.task_id
@@ -316,7 +316,7 @@ if completed.data.download_url:
         print(video.get("title"), video.get("published_at"), video.get("likes"), video.get("url"))
 ```
 
-`after_date` and `before_date` use `YYYY-MM-DD` format. You can pass strings in that format, or Python `date` / `datetime` objects. In typed SDK responses, `video.published_at` is parsed as a Python `datetime`, and numeric fields such as `views`, `likes`, `reposts`, and `comments` are integers.
+`after_datetime` and `before_datetime` accept `YYYY-MM-DD` strings or ISO format with timezone. You can pass strings in that format, or Python `date` / `datetime` objects. In typed SDK responses, `video.published_at` is parsed as a Python `datetime`, and numeric fields such as `views`, `likes`, `reposts`, and `comments` are integers.
 
 ### Use scraped videos with transcripts or extraction
 
@@ -387,9 +387,11 @@ print(resp.data.claim_type)
 
 ## Semantic Search
 
-Search across your indexed videos or uploaded files using natural language. Results are ranked by AI relevance, not keyword matching.
+Search across your uploaded files using natural language. Results are ranked by AI relevance, not keyword matching.
 
-### Search videos
+### Search YouTube videos
+
+Search across all of YouTube (not limited to indexed videos). This performs a standard YouTube search and applies AI reranking to the results (no vector search).
 
 ```python
 results = client.search_videos(

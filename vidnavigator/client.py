@@ -26,7 +26,7 @@ from . import models
 
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/1.0.2"
+USER_AGENT = "vidnavigator-python/1.0.3"
 
 
 def _parse_model(model_cls: Any, raw: Any) -> Any:
@@ -36,11 +36,9 @@ def _parse_model(model_cls: Any, raw: Any) -> Any:
     return model_cls.parse_obj(raw)
 
 
-def _format_yyyy_mm_dd(value: Union[str, date, datetime]) -> str:
-    """Serialize TikTok profile date filters in API-required YYYY-MM-DD format."""
-    if isinstance(value, datetime):
-        return value.date().isoformat()
-    if isinstance(value, date):
+def _format_datetime(value: Union[str, date, datetime]) -> str:
+    """Serialize TikTok profile date/datetime filters."""
+    if isinstance(value, (datetime, date)):
         return value.isoformat()
     return value
 
@@ -322,23 +320,23 @@ class VidNavigatorClient:
         *,
         profile_url: str,
         max_posts: Optional[int] = None,
-        after_date: Optional[Union[str, date, datetime]] = None,
-        before_date: Optional[Union[str, date, datetime]] = None,
+        after_datetime: Optional[Union[str, date, datetime]] = None,
+        before_datetime: Optional[Union[str, date, datetime]] = None,
         min_likes: Optional[int] = None,
         max_likes: Optional[int] = None,
     ) -> models.TikTokProfileSubmitResponse:
         """Start an async TikTok profile scrape and return the task metadata.
 
-        Date filters must be YYYY-MM-DD strings. ``date`` and ``datetime`` values
-        are accepted and serialized to that format automatically.
+        Datetime filters must be YYYY-MM-DD strings or ISO format with timezone. 
+        ``date`` and ``datetime`` values are accepted and serialized automatically.
         """
         payload: Dict[str, Any] = {"profile_url": profile_url}
         if max_posts is not None:
             payload["max_posts"] = max_posts
-        if after_date is not None:
-            payload["after_date"] = _format_yyyy_mm_dd(after_date)
-        if before_date is not None:
-            payload["before_date"] = _format_yyyy_mm_dd(before_date)
+        if after_datetime is not None:
+            payload["after_datetime"] = _format_datetime(after_datetime)
+        if before_datetime is not None:
+            payload["before_datetime"] = _format_datetime(before_datetime)
         if min_likes is not None:
             payload["min_likes"] = min_likes
         if max_likes is not None:

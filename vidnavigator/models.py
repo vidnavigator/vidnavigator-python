@@ -273,8 +273,8 @@ class TikTokVideo(BaseModel):
 
 class TikTokProfileFilters(BaseModel):
     max_posts: Optional[int] = Field(None, alias="max_posts")
-    after_date: Optional[str] = Field(None, alias="after_date")
-    before_date: Optional[str] = Field(None, alias="before_date")
+    after_datetime: Optional[str] = Field(None, alias="after_datetime")
+    before_datetime: Optional[str] = Field(None, alias="before_datetime")
     min_likes: Optional[int] = Field(None, alias="min_likes")
     max_likes: Optional[int] = Field(None, alias="max_likes")
 
