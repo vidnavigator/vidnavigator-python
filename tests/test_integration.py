@@ -61,6 +61,17 @@ def _wait_for_tiktok_scrape(client, task_id):
         time.sleep(5)
 
 
+def _wait_for_tiktok_search(client, task_id):
+    deadline = time.time() + TIKTOK_TIMEOUT_SECONDS
+    while True:
+        result = client.get_tiktok_search(task_id, limit=5)
+        if result.data.task_status != "processing":
+            return result
+        if time.time() >= deadline:
+            pytest.fail(f"TikTok search did not finish within {TIKTOK_TIMEOUT_SECONDS}s")
+        time.sleep(5)
+
+
 # -- System ----------------------------------------------------------------
 
 def test_health_check(client):
@@ -227,6 +238,45 @@ def test_tiktok_profile_scrape_lifecycle(client):
             downloaded = json.load(response)
         assert isinstance(downloaded, dict)
         assert isinstance(downloaded.get("videos", []), list)
+
+
+def test_tiktok_search_lifecycle(client):
+    task = client.submit_tiktok_search(
+        query="ai tools",
+        max_results=2,
+        parallel_search_slices=1,
+    )
+    assert task.status == "success"
+    assert task.data.task_id
+    assert task.data.query == "ai tools"
+
+    result = _wait_for_tiktok_search(client, task.data.task_id)
+    assert result.status == "success"
+    assert result.data.task_status == "completed"
+    assert result.data.results is not None
+    assert result.data.pagination is not None
+
+    if result.data.results:
+        first_result = result.data.results[0]
+        assert first_result.url
+        if first_result.published_at:
+            assert isinstance(first_result.published_at, datetime)
+        if first_result.stats:
+            for metric in (
+                first_result.stats.views,
+                first_result.stats.likes,
+                first_result.stats.comments,
+                first_result.stats.shares,
+                first_result.stats.collects,
+            ):
+                if metric is not None:
+                    assert isinstance(metric, int)
+
+    if result.data.download_url:
+        with urlopen(result.data.download_url) as response:
+            downloaded = json.load(response)
+        assert isinstance(downloaded, dict)
+        assert isinstance(downloaded.get("results", []), list)
 
 
 # -- Tweet analysis ---------------------------------------------------------
