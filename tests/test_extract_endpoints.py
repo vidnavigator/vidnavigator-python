@@ -71,6 +71,35 @@ def test_extract_video_data_omits_what_to_extract_when_none(client):
     assert "what_to_extract" not in called_kwargs["json_body"]
 
 
+def test_extract_video_data_can_upload_schema_file(client, tmp_path):
+    raw = {"status": "success", "data": {"topic": "demo"}}
+    schema_file = tmp_path / "schema.yaml"
+    schema_file.write_text("topic:\n  type: String\n  description: Main topic\n")
+
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.extract_video_data(
+            video_url="https://youtube.com/watch?v=abc",
+            schema_file=str(schema_file),
+            what_to_extract="Focus on the intro",
+            transcribe=False,
+            include_usage=True,
+        )
+
+    req.assert_called_once()
+    args, kwargs = req.call_args
+    assert args == ("POST", "/extract/video")
+    assert kwargs["data"] == {
+        "video_url": "https://youtube.com/watch?v=abc",
+        "transcribe": "false",
+        "include_usage": "true",
+        "what_to_extract": "Focus on the intro",
+    }
+    filename, _, content_type = kwargs["files"]["schema"]
+    assert filename == "schema.yaml"
+    assert content_type == "application/yaml"
+    assert resp.data == {"topic": "demo"}
+
+
 def test_extract_file_data_posts_correct_path_and_body(client):
     raw = {"status": "success", "data": {"summary": "hello"}}
     schema = {"summary": {"type": "String", "description": "Short summary"}}
@@ -93,3 +122,27 @@ def test_extract_file_data_posts_correct_path_and_body(client):
     assert resp.status == "success"
     assert resp.data["summary"] == "hello"
     assert resp.usage is None
+
+
+def test_extract_file_data_can_upload_schema_file(client, tmp_path):
+    raw = {"status": "success", "data": {"summary": "hello"}}
+    schema_file = tmp_path / "schema.json"
+    schema_file.write_text('{"summary": {"type": "String", "description": "Short summary"}}')
+
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.extract_file_data(
+            file_id="file_123",
+            schema_file=str(schema_file),
+            include_usage=True,
+        )
+
+    args, kwargs = req.call_args
+    assert args == ("POST", "/extract/file")
+    assert kwargs["data"] == {
+        "file_id": "file_123",
+        "include_usage": "true",
+    }
+    filename, _, content_type = kwargs["files"]["schema"]
+    assert filename == "schema.json"
+    assert content_type == "application/json"
+    assert resp.data["summary"] == "hello"

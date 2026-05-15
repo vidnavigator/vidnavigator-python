@@ -22,6 +22,8 @@ from vidnavigator.models import (
     HealthResponse,
     TikTokProfileSubmitResponse,
     TikTokProfileResponse,
+    TikTokSearchSubmitResponse,
+    TikTokSearchResponse,
     TweetStatementResponse,
 )
 
@@ -441,8 +443,8 @@ def test_submit_tiktok_profile_scrape(client):
         resp = client.submit_tiktok_profile_scrape(
             profile_url="https://www.tiktok.com/@tiktok",
             max_posts=100,
-            after_date=date(2024, 1, 1),
-            before_date=datetime(2024, 12, 31, 10, 30, tzinfo=timezone.utc),
+            after_datetime=date(2024, 1, 1),
+            before_datetime=datetime(2024, 12, 31, 10, 30, tzinfo=timezone.utc),
             min_likes=1000,
         )
     assert isinstance(resp, TikTokProfileSubmitResponse)
@@ -453,8 +455,8 @@ def test_submit_tiktok_profile_scrape(client):
         json_body={
             "profile_url": "https://www.tiktok.com/@tiktok",
             "max_posts": 100,
-            "after_date": "2024-01-01",
-            "before_date": "2024-12-31",
+            "after_datetime": "2024-01-01",
+            "before_datetime": "2024-12-31T10:30:00+00:00",
             "min_likes": 1000,
         },
     )
@@ -468,7 +470,7 @@ def test_get_tiktok_profile_scrape(client):
             "task_status": "completed",
             "profile_url": "https://www.tiktok.com/@tiktok",
             "profile": {"uploader": "tiktok"},
-            "filters": {"max_posts": "10", "after_date": "2024-01-01"},
+            "filters": {"max_posts": "10", "after_datetime": "2024-01-01"},
             "stats": {"videos_scanned": "10", "videos_matched": "1", "pages_consumed": "1"},
             "videos": [
                 {
@@ -499,6 +501,90 @@ def test_get_tiktok_profile_scrape(client):
     req.assert_called_once_with(
         "GET",
         "/tiktok/profile/task_123",
+        params={"limit": 25, "cursor": "abc"},
+    )
+
+
+def test_submit_tiktok_search(client):
+    raw = {
+        "status": "success",
+        "data": {
+            "task_id": "search_123",
+            "task_status": "processing",
+            "query": "ai tools",
+            "max_results": "100",
+            "parallel_search_slices": "2",
+            "filters": {"after_datetime": "2024-01-01", "min_views": "1000"},
+            "expires_at": "2026-05-15T12:00:00Z",
+            "check_status_url": "/v1/tiktok/search/search_123",
+            "message": "Task accepted",
+        },
+    }
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.submit_tiktok_search(
+            query="ai tools",
+            max_results=100,
+            parallel_search_slices=2,
+            after_datetime=date(2024, 1, 1),
+            min_views=1000,
+        )
+    assert isinstance(resp, TikTokSearchSubmitResponse)
+    assert resp.data.task_id == "search_123"
+    assert resp.data.max_results == 100
+    assert resp.data.filters.min_views == 1000
+    req.assert_called_once_with(
+        "POST",
+        "/tiktok/search",
+        json_body={
+            "query": "ai tools",
+            "max_results": 100,
+            "parallel_search_slices": 2,
+            "after_datetime": "2024-01-01",
+            "min_views": 1000,
+        },
+    )
+
+
+def test_get_tiktok_search(client):
+    raw = {
+        "status": "success",
+        "data": {
+            "task_id": "search_123",
+            "task_status": "completed",
+            "query": "ai tools",
+            "parallel_search_slices": "2",
+            "filters": {"max_likes": "5000"},
+            "stats": {"pages_fetched": "4", "results_count": "42", "next_search_cursor": "120"},
+            "results": [
+                {
+                    "id": "v1",
+                    "item_type": "1",
+                    "description": "Demo",
+                    "timestamp": "1776892618",
+                    "published_at": "2026-04-22T21:16:58+00:00",
+                    "author": {"unique_id": "creator"},
+                    "stats": {"views": "1,234", "likes": "123", "comments": "4", "shares": "5"},
+                    "music": {"title": "Sound", "duration": "30"},
+                    "duration": "15",
+                    "hashtags": ["ai"],
+                    "url": "https://www.tiktok.com/@creator/video/1",
+                }
+            ],
+            "pagination": {"limit": "25", "offset": "0", "total_items": "42", "has_next": True, "has_prev": False},
+            "download_url": "https://storage.googleapis.com/bucket/search.json",
+        },
+    }
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.get_tiktok_search("search_123", cursor="abc", limit=25)
+    assert isinstance(resp, TikTokSearchResponse)
+    assert resp.data.parallel_search_slices == 2
+    assert resp.data.stats.pages_fetched == 4
+    assert resp.data.results[0].stats.views == 1234
+    assert resp.data.results[0].music.duration == 30
+    assert resp.data.results[0].published_at.isoformat() == "2026-04-22T21:16:58+00:00"
+    req.assert_called_once_with(
+        "GET",
+        "/tiktok/search/search_123",
         params={"limit": 25, "cursor": "abc"},
     )
 

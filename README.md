@@ -18,7 +18,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Semantic search across content | Yes | Yes |
 | File upload, storage, and management | -- | Yes |
 | Namespace organization and scoped search | -- | Yes |
-| TikTok profile scraping | Yes | -- |
+| TikTok profile scraping and keyword search | Yes | -- |
 | Tweet claim analysis | Yes | -- |
 
 ## Supported Platforms
@@ -240,6 +240,16 @@ resp = client.extract_file_data(
 print(resp.data)
 ```
 
+You can also upload a JSON or YAML schema file using multipart form data:
+
+```python
+resp = client.extract_file_data(
+    file_id="your_file_id",
+    schema_file="./meeting-schema.yaml",
+    what_to_extract="Extract action items and deadlines.",
+)
+```
+
 ### Track token usage
 
 ```python
@@ -371,6 +381,29 @@ for video in result.data.videos or []:
     )
     print(video.url, extracted.data)
 ```
+
+---
+
+## TikTok Keyword Search
+
+TikTok keyword search is asynchronous. Submit a query first, then poll the task just like profile scraping:
+
+```python
+task = client.submit_tiktok_search(
+    query="ai tools",
+    max_results=100,
+    parallel_search_slices=2,
+    after_datetime="2024-01-01",
+    min_views=1000,
+)
+
+result = client.get_tiktok_search(task.data.task_id, limit=50)
+
+for item in result.data.results or []:
+    print(item.description, item.published_at, item.stats.views if item.stats else None, item.url)
+```
+
+Use `parallel_search_slices` from `1` to `4` to run concurrent TikTok search chains and deduplicate results. Higher values can return more unique videos but may consume proportionally more residential pages. Search results are sorted by `published_at` descending, and completed tasks may include a short-lived `download_url` for the full JSON payload.
 
 ---
 

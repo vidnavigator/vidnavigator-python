@@ -26,7 +26,7 @@ from . import models
 
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/1.0.3"
+USER_AGENT = "vidnavigator-python/1.0.4"
 
 
 def _parse_model(model_cls: Any, raw: Any) -> Any:
@@ -41,6 +41,16 @@ def _format_datetime(value: Union[str, date, datetime]) -> str:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
     return value
+
+
+def _guess_schema_content_type(file_path: str) -> str:
+    """Return a stable content type for uploaded JSON/YAML schema files."""
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext in {".yaml", ".yml"}:
+        return "application/yaml"
+    if ext == ".json":
+        return "application/json"
+    return mimetypes.guess_type(file_path)[0] or "application/octet-stream"
 
 
 class VidNavigatorClient:
@@ -297,12 +307,37 @@ class VidNavigatorClient:
         self,
         *,
         video_url: str,
-        schema: Dict[str, Any],
+        schema: Optional[Dict[str, Any]] = None,
+        schema_file: Optional[str] = None,
         what_to_extract: Optional[str] = None,
         transcribe: bool = True,
         include_usage: bool = False,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an online video transcript using a custom schema."""
+        """Extract structured data from an online video transcript using a custom schema.
+
+        Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
+        JSON/YAML schema file as multipart/form-data.
+        """
+        if (schema is None) == (schema_file is None):
+            raise ValueError("Pass exactly one of schema or schema_file.")
+
+        if schema_file is not None:
+            if not os.path.isfile(schema_file):
+                raise FileNotFoundError(schema_file)
+            data: Dict[str, Any] = {
+                "video_url": video_url,
+                "transcribe": "true" if transcribe else "false",
+                "include_usage": "true" if include_usage else "false",
+            }
+            if what_to_extract is not None:
+                data["what_to_extract"] = what_to_extract
+            filename = os.path.basename(schema_file)
+            content_type = _guess_schema_content_type(schema_file)
+            with open(schema_file, "rb") as fp:
+                files = {"schema": (filename, fp, content_type)}
+                raw = self._request("POST", "/extract/video", data=data, files=files)
+            return _parse_model(models.ExtractionApiResponse, raw)
+
         payload: Dict[str, Any] = {
             "video_url": video_url,
             "schema": schema,
@@ -358,15 +393,87 @@ class VidNavigatorClient:
         raw = self._request("GET", f"/tiktok/profile/{task_id}", params=params)
         return _parse_model(models.TikTokProfileResponse, raw)
 
+    def submit_tiktok_search(
+        self,
+        *,
+        query: str,
+        max_results: Optional[int] = None,
+        parallel_search_slices: Optional[int] = None,
+        after_datetime: Optional[Union[str, date, datetime]] = None,
+        before_datetime: Optional[Union[str, date, datetime]] = None,
+        min_likes: Optional[int] = None,
+        max_likes: Optional[int] = None,
+        min_views: Optional[int] = None,
+        max_views: Optional[int] = None,
+    ) -> models.TikTokSearchSubmitResponse:
+        """Start an async TikTok keyword search and return the task metadata."""
+        payload: Dict[str, Any] = {"query": query}
+        if max_results is not None:
+            payload["max_results"] = max_results
+        if parallel_search_slices is not None:
+            payload["parallel_search_slices"] = parallel_search_slices
+        if after_datetime is not None:
+            payload["after_datetime"] = _format_datetime(after_datetime)
+        if before_datetime is not None:
+            payload["before_datetime"] = _format_datetime(before_datetime)
+        if min_likes is not None:
+            payload["min_likes"] = min_likes
+        if max_likes is not None:
+            payload["max_likes"] = max_likes
+        if min_views is not None:
+            payload["min_views"] = min_views
+        if max_views is not None:
+            payload["max_views"] = max_views
+        raw = self._request("POST", "/tiktok/search", json_body=payload)
+        return _parse_model(models.TikTokSearchSubmitResponse, raw)
+
+    def get_tiktok_search(
+        self,
+        task_id: str,
+        *,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+    ) -> models.TikTokSearchResponse:
+        """Poll an async TikTok keyword search task and retrieve a page of results."""
+        params: Dict[str, Any] = {"limit": limit}
+        if cursor is not None:
+            params["cursor"] = cursor
+        raw = self._request("GET", f"/tiktok/search/{task_id}", params=params)
+        return _parse_model(models.TikTokSearchResponse, raw)
+
     def extract_file_data(
         self,
         *,
         file_id: str,
-        schema: Dict[str, Any],
+        schema: Optional[Dict[str, Any]] = None,
+        schema_file: Optional[str] = None,
         what_to_extract: Optional[str] = None,
         include_usage: bool = False,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an uploaded file's transcript using a custom schema."""
+        """Extract structured data from an uploaded file's transcript using a custom schema.
+
+        Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
+        JSON/YAML schema file as multipart/form-data.
+        """
+        if (schema is None) == (schema_file is None):
+            raise ValueError("Pass exactly one of schema or schema_file.")
+
+        if schema_file is not None:
+            if not os.path.isfile(schema_file):
+                raise FileNotFoundError(schema_file)
+            data: Dict[str, Any] = {
+                "file_id": file_id,
+                "include_usage": "true" if include_usage else "false",
+            }
+            if what_to_extract is not None:
+                data["what_to_extract"] = what_to_extract
+            filename = os.path.basename(schema_file)
+            content_type = _guess_schema_content_type(schema_file)
+            with open(schema_file, "rb") as fp:
+                files = {"schema": (filename, fp, content_type)}
+                raw = self._request("POST", "/extract/file", data=data, files=files)
+            return _parse_model(models.ExtractionApiResponse, raw)
+
         payload: Dict[str, Any] = {
             "file_id": file_id,
             "schema": schema,

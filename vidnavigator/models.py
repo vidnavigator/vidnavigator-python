@@ -326,6 +326,103 @@ class TikTokProfileTask(BaseModel):
     expires_at: Optional[str] = Field(None, alias="expires_at")
 
 
+class TikTokSearchAuthor(BaseModel):
+    id: Optional[str] = None
+    unique_id: Optional[str] = Field(None, alias="unique_id")
+    nickname: Optional[str] = None
+    sec_uid: Optional[str] = Field(None, alias="sec_uid")
+
+
+class TikTokSearchStats(BaseModel):
+    views: Optional[int] = None
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    shares: Optional[int] = None
+    collects: Optional[int] = None
+
+    @_pre_validator("views", "likes", "comments", "shares", "collects")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokSearchMusic(BaseModel):
+    id: Optional[str] = None
+    title: Optional[str] = None
+    author_name: Optional[str] = Field(None, alias="author_name")
+    duration: Optional[int] = None
+
+    @_pre_validator("duration")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokSearchResult(BaseModel):
+    id: Optional[str] = None
+    item_type: Optional[int] = Field(None, alias="item_type")
+    description: Optional[str] = None
+    timestamp: Optional[int] = None
+    published_at: Optional[datetime] = Field(None, alias="published_at")
+    author: Optional[TikTokSearchAuthor] = None
+    stats: Optional[TikTokSearchStats] = None
+    music: Optional[TikTokSearchMusic] = None
+    duration: Optional[int] = None
+    hashtags: Optional[List[str]] = None
+    url: Optional[str] = None
+
+    @_pre_validator("item_type", "timestamp", "duration")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokSearchFilters(BaseModel):
+    after_datetime: Optional[str] = Field(None, alias="after_datetime")
+    before_datetime: Optional[str] = Field(None, alias="before_datetime")
+    min_likes: Optional[int] = Field(None, alias="min_likes")
+    max_likes: Optional[int] = Field(None, alias="max_likes")
+    min_views: Optional[int] = Field(None, alias="min_views")
+    max_views: Optional[int] = Field(None, alias="max_views")
+
+    @_pre_validator("min_likes", "max_likes", "min_views", "max_views")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokSearchStatsSummary(BaseModel):
+    pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
+    results_count: Optional[int] = Field(None, alias="results_count")
+    next_search_cursor: Optional[int] = Field(None, alias="next_search_cursor")
+
+    @_pre_validator("pages_fetched", "results_count", "next_search_cursor")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokSearchTask(BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    query: Optional[str] = None
+    parallel_search_slices: Optional[int] = Field(None, alias="parallel_search_slices")
+    filters: Optional[TikTokSearchFilters] = None
+    stats: Optional[TikTokSearchStatsSummary] = None
+    results: Optional[List[TikTokSearchResult]] = None
+    pagination: Optional[TikTokProfilePagination] = None
+    download_url: Optional[str] = Field(None, alias="download_url")
+    error_message: Optional[str] = Field(None, alias="error_message")
+    created_at: Optional[str] = Field(None, alias="created_at")
+    completed_at: Optional[str] = Field(None, alias="completed_at")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+
+    @_pre_validator("parallel_search_slices")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
 class TweetStatementData(BaseModel):
     final_statement: Optional[str] = Field(None, alias="final_statement")
     statement_query: Optional[str] = Field(None, alias="statement_query")
@@ -469,6 +566,33 @@ class TikTokProfileSubmitResponse(BaseModel):
 class TikTokProfileResponse(BaseModel):
     status: str
     data: TikTokProfileTask
+
+
+class TikTokSearchSubmitData(BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    query: Optional[str] = None
+    max_results: Optional[int] = Field(None, alias="max_results")
+    parallel_search_slices: Optional[int] = Field(None, alias="parallel_search_slices")
+    filters: Optional[TikTokSearchFilters] = None
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+    check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    message: Optional[str] = None
+
+    @_pre_validator("max_results", "parallel_search_slices")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokSearchSubmitResponse(BaseModel):
+    status: str
+    data: TikTokSearchSubmitData
+
+
+class TikTokSearchResponse(BaseModel):
+    status: str
+    data: TikTokSearchTask
 
 
 class TweetStatementResponse(BaseModel):
