@@ -92,10 +92,10 @@ def test_usage(client):
         assert d.channels_indexed.used >= 0
 
 
-# -- YouTube transcript ----------------------------------------------------
+# -- Transcript ------------------------------------------------------------
 
-def test_youtube_transcript_segments(client):
-    resp = client.get_youtube_transcript(video_url=TEST_VIDEO_URL)
+def test_transcript_segments(client):
+    resp = client.get_transcript(video_url=TEST_VIDEO_URL)
     assert resp.status == "success"
     assert resp.data.video_info.title
     transcript = resp.data.transcript
@@ -104,13 +104,16 @@ def test_youtube_transcript_segments(client):
     assert transcript[0].text
 
 
-def test_youtube_transcript_plain_text(client):
-    resp = client.get_youtube_transcript(
+def test_transcript_plain_text_with_usage(client):
+    resp = client.get_transcript(
         video_url=TEST_VIDEO_URL,
         transcript_text=True,
+        include_usage=True,
     )
     assert isinstance(resp.data.transcript, str)
     assert len(resp.data.transcript) > 0
+    if resp.usage:
+        assert resp.usage.charges is not None
 
 
 # -- Analysis --------------------------------------------------------------
@@ -119,6 +122,7 @@ def test_analyze_video_with_query(client):
     resp = client.analyze_video(
         video_url=TEST_VIDEO_URL,
         query="What is the main message of this song?",
+        include_usage=True,
     )
     analysis = resp.data.transcript_analysis
     assert analysis.summary
@@ -126,8 +130,8 @@ def test_analyze_video_with_query(client):
 
 # -- Search ----------------------------------------------------------------
 
-def test_search_videos(client):
-    resp = client.search_videos(query="never gonna give you up")
+def test_search_youtube(client):
+    resp = client.search_youtube(query="never gonna give you up", max_results=2)
     assert resp.status == "success"
     assert isinstance(resp.data.results, list)
     assert len(resp.data.results) > 0
@@ -186,7 +190,11 @@ def test_extract_video_data_with_usage(client):
     )
     assert resp.status == "success"
     if resp.usage:
-        assert resp.usage.total_tokens > 0
+        assert resp.usage.charges is not None
+        assert resp.usage.total_credits is not None
+        tokens = resp.usage.analysis_tokens
+        if tokens:
+            assert tokens.total_tokens > 0
 
 
 def test_extract_video_data_with_transcribe_option(client):

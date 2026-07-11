@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+import warnings
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional, Union
 import requests
@@ -26,7 +27,7 @@ from . import models
 
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/1.0.4"
+USER_AGENT = "vidnavigator-python/1.0.5"
 
 
 def _parse_model(model_cls: Any, raw: Any) -> Any:
@@ -179,16 +180,22 @@ class VidNavigatorClient:
         metadata_only: bool = False,
         fallback_to_metadata: bool = False,
         transcript_text: bool = False,
+        include_usage: bool = False,
     ) -> models.TranscriptResponse:
-        """Extract transcript from a non-YouTube online video.
+        """Extract a transcript from any supported online video.
 
-        For YouTube URLs, use :meth:`get_youtube_transcript` instead.
+        The endpoint auto-detects the platform from *video_url* (YouTube, Vimeo,
+        X/Twitter, TikTok, Facebook, Dailymotion, Loom, etc.). For Instagram, use
+        :meth:`transcribe_video` (speech-to-text) instead.
+
+        Set *include_usage* to receive a per-call ``usage`` block on the response.
         """
         payload: Dict[str, Any] = {
             "video_url": video_url,
             "metadata_only": metadata_only,
             "fallback_to_metadata": fallback_to_metadata,
             "transcript_text": transcript_text,
+            "include_usage": include_usage,
         }
         if language:
             payload["language"] = language
@@ -203,18 +210,27 @@ class VidNavigatorClient:
         metadata_only: bool = False,
         fallback_to_metadata: bool = False,
         transcript_text: bool = False,
+        include_usage: bool = False,
     ) -> models.TranscriptResponse:
-        """Extract transcript from a YouTube video."""
-        payload: Dict[str, Any] = {
-            "video_url": video_url,
-            "metadata_only": metadata_only,
-            "fallback_to_metadata": fallback_to_metadata,
-            "transcript_text": transcript_text,
-        }
-        if language:
-            payload["language"] = language
-        raw = self._request("POST", "/youtube/transcript", json_body=payload)
-        return _parse_model(models.TranscriptResponse, raw)
+        """Deprecated alias for :meth:`get_transcript`.
+
+        The API now exposes a single ``/transcript`` endpoint that auto-detects
+        YouTube URLs, so this simply forwards to :meth:`get_transcript`.
+        """
+        warnings.warn(
+            "get_youtube_transcript() is deprecated; use get_transcript() instead. "
+            "The API now has a single /transcript endpoint that auto-detects YouTube.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.get_transcript(
+            video_url=video_url,
+            language=language,
+            metadata_only=metadata_only,
+            fallback_to_metadata=fallback_to_metadata,
+            transcript_text=transcript_text,
+            include_usage=include_usage,
+        )
 
     def transcribe_video(
         self,
@@ -222,16 +238,20 @@ class VidNavigatorClient:
         video_url: str,
         transcript_text: bool = False,
         all_videos: bool = False,
+        include_usage: bool = False,
     ) -> Union[models.TranscriptResponse, models.TranscribeAllVideosResponse]:
         """Transcribe an online video using speech-to-text.
 
         When *all_videos* is True (carousel posts), the response shape includes
         *carousel_info* and *videos* instead of a single *video_info*.
+
+        Set *include_usage* to receive a per-call ``usage`` block on the response.
         """
         payload: Dict[str, Any] = {
             "video_url": video_url,
             "transcript_text": transcript_text,
             "all_videos": all_videos,
+            "include_usage": include_usage,
         }
         raw = self._request("POST", "/transcribe", json_body=payload)
         if all_videos:
@@ -282,8 +302,13 @@ class VidNavigatorClient:
         video_url: str,
         query: Optional[str] = None,
         transcript_text: bool = False,
+        include_usage: bool = False,
     ) -> models.AnalysisResponse:
-        payload: Dict[str, Any] = {"video_url": video_url, "transcript_text": transcript_text}
+        payload: Dict[str, Any] = {
+            "video_url": video_url,
+            "transcript_text": transcript_text,
+            "include_usage": include_usage,
+        }
         if query:
             payload["query"] = query
         raw = self._request("POST", "/analyze/video", json_body=payload)
@@ -295,8 +320,13 @@ class VidNavigatorClient:
         file_id: str,
         query: Optional[str] = None,
         transcript_text: bool = False,
+        include_usage: bool = False,
     ) -> models.AnalysisResponse:
-        payload: Dict[str, Any] = {"file_id": file_id, "transcript_text": transcript_text}
+        payload: Dict[str, Any] = {
+            "file_id": file_id,
+            "transcript_text": transcript_text,
+            "include_usage": include_usage,
+        }
         if query:
             payload["query"] = query
         raw = self._request("POST", "/analyze/file", json_body=payload)
@@ -385,11 +415,18 @@ class VidNavigatorClient:
         *,
         cursor: Optional[str] = None,
         limit: int = 50,
+        include_usage: bool = False,
     ) -> models.TikTokProfileResponse:
-        """Poll an async TikTok profile scrape task and retrieve a page of videos."""
+        """Poll an async TikTok profile scrape task and retrieve a page of videos.
+
+        Set *include_usage* to receive a ``usage`` block (only populated once the
+        task is ``completed``). Polling itself is free.
+        """
         params: Dict[str, Any] = {"limit": limit}
         if cursor is not None:
             params["cursor"] = cursor
+        if include_usage:
+            params["include_usage"] = "true"
         raw = self._request("GET", f"/tiktok/profile/{task_id}", params=params)
         return _parse_model(models.TikTokProfileResponse, raw)
 
@@ -433,11 +470,18 @@ class VidNavigatorClient:
         *,
         cursor: Optional[str] = None,
         limit: int = 50,
+        include_usage: bool = False,
     ) -> models.TikTokSearchResponse:
-        """Poll an async TikTok keyword search task and retrieve a page of results."""
+        """Poll an async TikTok keyword search task and retrieve a page of results.
+
+        Set *include_usage* to receive a ``usage`` block (only populated once the
+        task is ``completed``). Polling itself is free.
+        """
         params: Dict[str, Any] = {"limit": limit}
         if cursor is not None:
             params["cursor"] = cursor
+        if include_usage:
+            params["include_usage"] = "true"
         raw = self._request("GET", f"/tiktok/search/{task_id}", params=params)
         return _parse_model(models.TikTokSearchResponse, raw)
 
@@ -485,6 +529,48 @@ class VidNavigatorClient:
         return _parse_model(models.ExtractionApiResponse, raw)
 
     # Search -----------------------------------------------------------------------
+    def search_youtube(
+        self,
+        *,
+        query: str,
+        use_enhanced_search: bool = True,
+        start_year: Optional[int] = None,
+        end_year: Optional[int] = None,
+        focus: str = "relevance",
+        duration: Optional[int] = None,
+        max_results: Optional[int] = None,
+        include_usage: bool = False,
+    ) -> models.VideoSearchResponse:
+        """Search YouTube for videos with AI analysis and ranking.
+
+        Parameters
+        ----------
+        focus:
+            One of ``"relevance"`` (default), ``"popularity"``, or ``"brevity"``.
+        max_results:
+            Maximum number of candidate videos to analyse and return. Each
+            candidate incurs one ``residential_request``, so lowering this caps
+            cost. Defaults to the plan ceiling when omitted.
+        include_usage:
+            When True, the response includes a per-call ``usage`` block.
+        """
+        payload: Dict[str, Any] = {
+            "query": query,
+            "use_enhanced_search": use_enhanced_search,
+            "focus": focus,
+            "include_usage": include_usage,
+        }
+        if start_year is not None:
+            payload["start_year"] = start_year
+        if end_year is not None:
+            payload["end_year"] = end_year
+        if duration is not None:
+            payload["duration"] = duration
+        if max_results is not None:
+            payload["max_results"] = max_results
+        raw = self._request("POST", "/youtube/search", json_body=payload)
+        return _parse_model(models.VideoSearchResponse, raw)
+
     def search_videos(
         self,
         *,
@@ -494,28 +580,38 @@ class VidNavigatorClient:
         end_year: Optional[int] = None,
         focus: str = "relevance",
         duration: Optional[int] = None,
+        max_results: Optional[int] = None,
+        include_usage: bool = False,
     ) -> models.VideoSearchResponse:
-        payload: Dict[str, Any] = {
-            "query": query,
-            "use_enhanced_search": use_enhanced_search,
-            "focus": focus,
-        }
-        if start_year is not None:
-            payload["start_year"] = start_year
-        if end_year is not None:
-            payload["end_year"] = end_year
-        if duration is not None:
-            payload["duration"] = duration
-        raw = self._request("POST", "/search/video", json_body=payload)
-        return _parse_model(models.VideoSearchResponse, raw)
+        """Deprecated alias for :meth:`search_youtube`.
+
+        The endpoint moved from ``/search/video`` to ``/youtube/search``.
+        """
+        warnings.warn(
+            "search_videos() is deprecated; use search_youtube() instead. "
+            "The endpoint moved to /youtube/search.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.search_youtube(
+            query=query,
+            use_enhanced_search=use_enhanced_search,
+            start_year=start_year,
+            end_year=end_year,
+            focus=focus,
+            duration=duration,
+            max_results=max_results,
+            include_usage=include_usage,
+        )
 
     def search_files(
         self,
         *,
         query: str,
         namespace_ids: Optional[List[str]] = None,
+        include_usage: bool = False,
     ) -> models.FileSearchResponse:
-        payload: Dict[str, Any] = {"query": query}
+        payload: Dict[str, Any] = {"query": query, "include_usage": include_usage}
         if namespace_ids is not None:
             payload["namespace_ids"] = namespace_ids
         raw = self._request("POST", "/search/file", json_body=payload)

@@ -1,6 +1,6 @@
 """VidNavigator Developer API Python client."""
 
-__version__ = "1.0.4"
+__version__ = "1.0.5"
 
 from .client import VidNavigatorClient
 from .exceptions import (

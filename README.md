@@ -73,10 +73,12 @@ Get your API key at [vidnavigator.com](https://vidnavigator.com).
 
 ## Transcripts
 
-### YouTube
+### Any supported platform
+
+A single `get_transcript` method handles every supported platform (YouTube, Vimeo, X/Twitter, TikTok, Facebook, Dailymotion, Loom, etc.). The API auto-detects the platform from the URL. **Note:** Instagram uses `transcribe_video` (speech-to-text) instead.
 
 ```python
-resp = client.get_youtube_transcript(
+resp = client.get_transcript(
     video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 )
 
@@ -90,21 +92,12 @@ for segment in resp.data.transcript:
 # ...
 ```
 
-### Other platforms (Vimeo, X/Twitter, TikTok, etc.)
-
-For most non-YouTube platforms, you can use either `get_transcript` (fast, caption-based) or `transcribe_video` (speech-to-text). **Note:** Instagram only supports `transcribe_video`.
-
-```python
-# TikTok (can use get_transcript or transcribe_video)
-resp = client.get_transcript(
-    video_url="https://www.tiktok.com/@user/video/1234567890",
-)
-```
+> `get_youtube_transcript` still works as a deprecated alias for `get_transcript`, but you should migrate to `get_transcript`.
 
 ### Plain text instead of segments
 
 ```python
-resp = client.get_youtube_transcript(
+resp = client.get_transcript(
     video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     transcript_text=True,
 )
@@ -146,6 +139,7 @@ All transcript methods support these parameters:
 | `transcript_text` | `bool` | Return transcript as a single string instead of segments |
 | `metadata_only` | `bool` | Return only video metadata, no transcript |
 | `fallback_to_metadata` | `bool` | Return metadata with empty transcript instead of 404 if unavailable |
+| `include_usage` | `bool` | Attach a per-call `usage` block to the response (see [Per-call usage](#per-call-usage)) |
 
 ---
 
@@ -261,6 +255,42 @@ resp = client.extract_video_data(
 if resp.usage:
     print(f"Tokens used: {resp.usage.total_tokens}")
 ```
+
+---
+
+## Per-call usage
+
+Pass `include_usage=True` to most methods to attach a `usage` block describing exactly which meters were charged, how many credits were deducted, and (for AI endpoints) the LLM token tally.
+
+Supported on: `get_transcript`, `transcribe_video`, `analyze_video`, `analyze_file`, `extract_video_data`, `extract_file_data`, `search_youtube`, `search_files`, and the TikTok pollers (`get_tiktok_profile_scrape`, `get_tiktok_search` — usage appears once the task is `completed`).
+
+```python
+resp = client.search_youtube(query="react best practices", include_usage=True)
+
+usage = resp.usage
+if usage:
+    print(f"Credits this call: {usage.total_credits}")
+
+    for charge in usage.charges or []:
+        print(f"  {charge.service_type}: {charge.quantity} unit(s), {charge.credits} credits")
+
+    # LLM token tally (present for analyze / extract / youtube search)
+    tokens = usage.analysis_tokens
+    if tokens:
+        print(f"  LLM tokens: {tokens.total_tokens}")
+```
+
+The `usage` object exposes:
+
+| Field | Description |
+|---|---|
+| `charges` | List of `UsageCharge` (one per meter): `service_type`, `quantity`, `credits`, `waived`, `credits_saved`, and (analysis only) nested `tokens` |
+| `total_credits` | Net credits deducted by the call |
+| `waived` | Present when a cache-hit sponsorship waived charges (`waived.credits_saved`) |
+| `analysis_tokens` | Convenience accessor for the LLM `tokens` on the `analysis_request` charge |
+| `charge_for(service_type)` | Helper returning the charge entry for a given meter |
+
+For `/extract/*`, the token counts are also mirrored as flat `usage.prompt_tokens` / `usage.completion_tokens` / `usage.total_tokens` for convenience.
 
 ---
 
@@ -427,9 +457,10 @@ Search across your uploaded files using natural language. Results are ranked by 
 Search across all of YouTube (not limited to indexed videos). This performs a standard YouTube search and applies AI reranking to the results (no vector search).
 
 ```python
-results = client.search_videos(
+results = client.search_youtube(
     query="how to train a neural network from scratch",
     start_year=2023,
+    max_results=5,
 )
 
 print(f"Found {results.data.total_found} results")
@@ -440,13 +471,17 @@ for r in results.data.results:
     print(f"  {r.transcript_summary}")
 ```
 
+> `search_videos` still works as a deprecated alias for `search_youtube` (the endpoint moved from `/search/video` to `/youtube/search`).
+
 | Parameter | Type | Description |
 |---|---|---|
 | `query` | `str` | Natural-language search query |
 | `use_enhanced_search` | `bool` | AI-enhanced ranking (default: `True`) |
 | `start_year` / `end_year` | `int` | Filter by publish date |
-| `focus` | `str` | `"relevance"` (default) or `"recency"` |
+| `focus` | `str` | `"relevance"` (default), `"popularity"`, or `"brevity"` |
 | `duration` | `int` | Filter by video duration in seconds |
+| `max_results` | `int` | Max candidate videos to analyse/return (caps cost; defaults to plan ceiling) |
+| `include_usage` | `bool` | Attach a per-call `usage` block to the response |
 
 ### Search uploaded files
 

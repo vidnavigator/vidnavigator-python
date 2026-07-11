@@ -80,17 +80,26 @@ def test_get_transcript_with_all_params(client):
     assert body["transcript_text"] is True
 
 
-def test_get_youtube_transcript(client):
+def test_get_transcript_routes_to_transcript(client):
     with patch.object(client, "_request", return_value=TRANSCRIPT_RAW) as req:
-        resp = client.get_youtube_transcript(video_url="https://youtube.com/watch?v=x")
+        resp = client.get_transcript(video_url="https://youtube.com/watch?v=x")
     assert isinstance(resp, TranscriptResponse)
     args, _ = req.call_args
-    assert args[1] == "/youtube/transcript"
+    assert args[1] == "/transcript"
+
+
+def test_get_youtube_transcript_is_deprecated_alias(client):
+    with patch.object(client, "_request", return_value=TRANSCRIPT_RAW) as req:
+        with pytest.warns(DeprecationWarning):
+            resp = client.get_youtube_transcript(video_url="https://youtube.com/watch?v=x")
+    assert isinstance(resp, TranscriptResponse)
+    args, _ = req.call_args
+    assert args[1] == "/transcript"
 
 
 def test_transcript_text_returns_string(client):
     with patch.object(client, "_request", return_value=TRANSCRIPT_TEXT_RAW):
-        resp = client.get_youtube_transcript(
+        resp = client.get_transcript(
             video_url="https://youtube.com/watch?v=x",
             transcript_text=True,
         )
@@ -261,6 +270,26 @@ SEARCH_VIDEO_RAW = {
         "total_found": 1,
         "explanation": "top match",
     },
+    "usage": {
+        "charges": [
+            {
+                "service_type": "residential_request",
+                "quantity": 2,
+                "credits": 2,
+            },
+            {
+                "service_type": "analysis_request",
+                "quantity": 1,
+                "credits": 1,
+                "tokens": {
+                    "prompt_tokens": 900,
+                    "completion_tokens": 100,
+                    "total_tokens": 1000,
+                },
+            },
+        ],
+        "total_credits": 3,
+    },
 }
 
 SEARCH_FILE_RAW = {
@@ -281,11 +310,35 @@ SEARCH_FILE_RAW = {
 }
 
 
-def test_search_videos(client):
-    with patch.object(client, "_request", return_value=SEARCH_VIDEO_RAW):
-        resp = client.search_videos(query="test", start_year=2020)
+def test_search_youtube(client):
+    with patch.object(client, "_request", return_value=SEARCH_VIDEO_RAW) as req:
+        resp = client.search_youtube(
+            query="test",
+            start_year=2020,
+            focus="popularity",
+            max_results=3,
+            include_usage=True,
+        )
     assert isinstance(resp, VideoSearchResponse)
     assert resp.data.total_found == 1
+    args, kw = req.call_args
+    assert args == ("POST", "/youtube/search")
+    body = kw["json_body"]
+    assert body["focus"] == "popularity"
+    assert body["max_results"] == 3
+    assert body["include_usage"] is True
+    assert resp.usage.total_credits == 3
+    assert resp.usage.analysis_tokens.total_tokens == 1000
+    assert resp.usage.charge_for("residential_request").quantity == 2
+
+
+def test_search_videos_is_deprecated_alias(client):
+    with patch.object(client, "_request", return_value=SEARCH_VIDEO_RAW) as req:
+        with pytest.warns(DeprecationWarning):
+            resp = client.search_videos(query="test")
+    assert isinstance(resp, VideoSearchResponse)
+    args, _ = req.call_args
+    assert args == ("POST", "/youtube/search")
 
 
 def test_search_files_with_namespace_ids(client):
@@ -296,6 +349,8 @@ def test_search_files_with_namespace_ids(client):
     assert r.timestamps == [10.5, 22.0]
     assert r.namespace_ids == ["ns1"]
     assert r.namespaces[0].name == "default"
+    _, kw = req.call_args
+    assert kw["json_body"]["include_usage"] is False
     _, kw = req.call_args
     assert kw["json_body"]["namespace_ids"] == ["ns1", "ns2"]
 

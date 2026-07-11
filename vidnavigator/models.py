@@ -243,10 +243,71 @@ class Namespace(BaseModel):
         return _normalize_date(v)
 
 
-class ExtractionTokenUsage(BaseModel):
+class UsageTokens(BaseModel):
+    """LLM token tally reported on the ``analysis_request`` charge entry."""
+
     prompt_tokens: Optional[int] = Field(None, alias="prompt_tokens")
     completion_tokens: Optional[int] = Field(None, alias="completion_tokens")
     total_tokens: Optional[int] = Field(None, alias="total_tokens")
+
+
+class UsageCharge(BaseModel):
+    """A single consolidated meter charge within a :class:`UsageBlock`."""
+
+    service_type: Optional[str] = Field(None, alias="service_type")
+    quantity: Optional[float] = None
+    credits: Optional[float] = None
+    waived: Optional[bool] = None
+    credits_saved: Optional[float] = Field(None, alias="credits_saved")
+    tokens: Optional[UsageTokens] = None
+
+
+class UsageWaived(BaseModel):
+    credits_saved: Optional[float] = Field(None, alias="credits_saved")
+
+
+class UsageBlock(BaseModel):
+    """Per-call usage disclosure returned when ``include_usage=true``.
+
+    Lists every meter that fired (``charges``) and the net credits deducted.
+    For LLM endpoints (extract/analyze/youtube search) the ``analysis_request``
+    charge carries a nested :class:`UsageTokens`. ``/extract/*`` responses may
+    also echo the token counts as flat ``prompt_tokens`` / ``completion_tokens``
+    / ``total_tokens`` fields, which remain accessible here for convenience.
+    """
+
+    charges: Optional[List[UsageCharge]] = None
+    total_credits: Optional[float] = Field(None, alias="total_credits")
+    credits_remaining_after: Optional[float] = Field(None, alias="credits_remaining_after")
+    waived: Optional[UsageWaived] = None
+    prompt_tokens: Optional[int] = Field(None, alias="prompt_tokens")
+    completion_tokens: Optional[int] = Field(None, alias="completion_tokens")
+    total_tokens: Optional[int] = Field(None, alias="total_tokens")
+
+    @property
+    def analysis_tokens(self) -> Optional[UsageTokens]:
+        """Return LLM token counts from the ``analysis_request`` charge, if any."""
+        for charge in self.charges or []:
+            if charge.service_type == "analysis_request" and charge.tokens is not None:
+                return charge.tokens
+        if any(v is not None for v in (self.prompt_tokens, self.completion_tokens, self.total_tokens)):
+            return UsageTokens(
+                prompt_tokens=self.prompt_tokens,
+                completion_tokens=self.completion_tokens,
+                total_tokens=self.total_tokens,
+            )
+        return None
+
+    def charge_for(self, service_type: str) -> Optional[UsageCharge]:
+        """Return the consolidated charge entry for a given meter, if present."""
+        for charge in self.charges or []:
+            if charge.service_type == service_type:
+                return charge
+        return None
+
+
+# Backwards-compatible alias (pre-1.0.5 name).
+ExtractionTokenUsage = UsageBlock
 
 
 class TikTokVideo(BaseModel):
@@ -460,6 +521,7 @@ class TranscriptData(BaseModel):
 class TranscriptResponse(BaseModel):
     status: str
     data: TranscriptData
+    usage: Optional[UsageBlock] = None
 
 
 class TranscribeAllVideosData(BaseModel):
@@ -470,6 +532,7 @@ class TranscribeAllVideosData(BaseModel):
 class TranscribeAllVideosResponse(BaseModel):
     status: str
     data: TranscribeAllVideosData
+    usage: Optional[UsageBlock] = None
 
 
 class AnalysisData(BaseModel):
@@ -482,6 +545,7 @@ class AnalysisData(BaseModel):
 class AnalysisResponse(BaseModel):
     status: str
     data: AnalysisData
+    usage: Optional[UsageBlock] = None
 
 
 class VideoSearchData(BaseModel):
@@ -494,6 +558,7 @@ class VideoSearchData(BaseModel):
 class VideoSearchResponse(BaseModel):
     status: str
     data: VideoSearchData
+    usage: Optional[UsageBlock] = None
 
 
 class FileSearchData(BaseModel):
@@ -506,6 +571,7 @@ class FileSearchData(BaseModel):
 class FileSearchResponse(BaseModel):
     status: str
     data: FileSearchData
+    usage: Optional[UsageBlock] = None
 
 
 class FilesListData(BaseModel):
@@ -546,7 +612,7 @@ class ExtractionApiResponse(BaseModel):
     data: Dict[str, Any]
     video_info: Optional[VideoInfo] = Field(None, alias="video_info")
     file_info: Optional[FileInfo] = Field(None, alias="file_info")
-    usage: Optional[ExtractionTokenUsage] = None
+    usage: Optional[UsageBlock] = None
 
 
 class TikTokProfileSubmitData(BaseModel):
@@ -566,6 +632,7 @@ class TikTokProfileSubmitResponse(BaseModel):
 class TikTokProfileResponse(BaseModel):
     status: str
     data: TikTokProfileTask
+    usage: Optional[UsageBlock] = None
 
 
 class TikTokSearchSubmitData(BaseModel):
@@ -593,6 +660,7 @@ class TikTokSearchSubmitResponse(BaseModel):
 class TikTokSearchResponse(BaseModel):
     status: str
     data: TikTokSearchTask
+    usage: Optional[UsageBlock] = None
 
 
 class TweetStatementResponse(BaseModel):

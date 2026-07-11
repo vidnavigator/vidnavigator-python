@@ -16,7 +16,21 @@ def test_extract_video_data_posts_correct_path_and_body(client):
     raw = {
         "status": "success",
         "data": {"topic": "demo"},
-        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+        "usage": {
+            "charges": [
+                {
+                    "service_type": "analysis_request",
+                    "quantity": 1,
+                    "credits": 1,
+                    "tokens": {
+                        "prompt_tokens": 10,
+                        "completion_tokens": 5,
+                        "total_tokens": 15,
+                    },
+                }
+            ],
+            "total_credits": 1,
+        },
     }
     schema = {
         "topic": {"type": "String", "description": "Main topic"},
@@ -43,8 +57,9 @@ def test_extract_video_data_posts_correct_path_and_body(client):
     assert resp.status == "success"
     assert resp.data == {"topic": "demo"}
     assert resp.usage is not None
-    assert resp.usage.prompt_tokens == 10
-    assert resp.usage.total_tokens == 15
+    assert resp.usage.total_credits == 1
+    assert resp.usage.analysis_tokens.prompt_tokens == 10
+    assert resp.usage.analysis_tokens.total_tokens == 15
 
 
 def test_extract_video_data_can_disable_auto_transcription(client):
