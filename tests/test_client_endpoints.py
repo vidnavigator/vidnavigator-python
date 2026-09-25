@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vidnavigator import VidNavigatorClient
+from vidnavigator import AsyncJob, VidNavigatorClient
 from vidnavigator.models import (
     TranscriptResponse,
     TranscribeAllVideosResponse,
@@ -26,6 +26,8 @@ from vidnavigator.models import (
     TikTokSearchResponse,
     TweetStatementResponse,
 )
+
+from .helpers import accepted, job
 
 
 @pytest.fixture
@@ -106,28 +108,29 @@ def test_transcript_text_returns_string(client):
     assert isinstance(resp.data.transcript, str)
 
 
-def test_transcribe_video_single(client):
-    with patch.object(client, "_request", return_value=TRANSCRIPT_RAW):
+def test_transcribe_video_single(client, no_sleep):
+    responses = [accepted("transcribe"), job("transcribe", "completed", result=TRANSCRIPT_RAW["data"])]
+    with patch.object(client, "_request", side_effect=responses) as req:
         resp = client.transcribe_video(video_url="https://example.com/v")
     assert isinstance(resp, TranscriptResponse)
+    assert resp.data.video_info.title == "Test"
+    assert req.call_args_list[0][0] == ("POST", "/transcribe/async")
 
 
-def test_transcribe_video_all_videos(client):
-    raw = {
-        "status": "success",
-        "data": {
-            "carousel_info": {"total_items": 3, "video_count": 2, "image_count": 1},
-            "videos": [
-                {
-                    "index": 1,
-                    "status": "success",
-                    "video_info": {"title": "V1"},
-                    "transcript": [{"text": "a", "start": 0, "end": 1}],
-                },
-            ],
-        },
+def test_transcribe_video_all_videos(client, no_sleep):
+    result = {
+        "carousel_info": {"total_items": 3, "video_count": 2, "image_count": 1},
+        "videos": [
+            {
+                "index": 1,
+                "status": "success",
+                "video_info": {"title": "V1"},
+                "transcript": [{"text": "a", "start": 0, "end": 1}],
+            },
+        ],
     }
-    with patch.object(client, "_request", return_value=raw):
+    responses = [accepted("transcribe"), job("transcribe", "completed", result=result)]
+    with patch.object(client, "_request", side_effect=responses):
         resp = client.transcribe_video(
             video_url="https://example.com/carousel",
             all_videos=True,
@@ -495,15 +498,17 @@ def test_submit_tiktok_profile_scrape(client):
         },
     }
     with patch.object(client, "_request", return_value=raw) as req:
-        resp = client.submit_tiktok_profile_scrape(
+        handle = client.submit_tiktok_profile_scrape(
             profile_url="https://www.tiktok.com/@tiktok",
             max_posts=100,
             after_datetime=date(2024, 1, 1),
             before_datetime=datetime(2024, 12, 31, 10, 30, tzinfo=timezone.utc),
             min_likes=1000,
         )
-    assert isinstance(resp, TikTokProfileSubmitResponse)
-    assert resp.data.task_id == "task_123"
+    assert isinstance(handle, AsyncJob)
+    assert isinstance(handle.submit_response, TikTokProfileSubmitResponse)
+    assert handle.task_id == "task_123"
+    assert handle.data.task_id == "task_123"
     req.assert_called_once_with(
         "POST",
         "/tiktok/profile",
@@ -576,17 +581,17 @@ def test_submit_tiktok_search(client):
         },
     }
     with patch.object(client, "_request", return_value=raw) as req:
-        resp = client.submit_tiktok_search(
+        handle = client.submit_tiktok_search(
             query="ai tools",
             max_results=100,
             parallel_search_slices=2,
             after_datetime=date(2024, 1, 1),
             min_views=1000,
         )
-    assert isinstance(resp, TikTokSearchSubmitResponse)
-    assert resp.data.task_id == "search_123"
-    assert resp.data.max_results == 100
-    assert resp.data.filters.min_views == 1000
+    assert isinstance(handle.submit_response, TikTokSearchSubmitResponse)
+    assert handle.task_id == "search_123"
+    assert handle.data.max_results == 100
+    assert handle.data.filters.min_views == 1000
     req.assert_called_once_with(
         "POST",
         "/tiktok/search",
@@ -648,7 +653,7 @@ def test_get_tiktok_search(client):
 # Tweet analysis
 # ---------------------------------------------------------------------------
 
-def test_get_tweet_statement(client):
+def test_get_tweet_statement(client, no_sleep):
     raw = {
         "status": "success",
         "data": {
@@ -665,14 +670,14 @@ def test_get_tweet_statement(client):
             "tweet_text": "Example tweet",
         },
     }
-    with patch.object(client, "_request", return_value=raw) as req:
+    responses = [accepted("tweet_statement"), job("tweet_statement", "completed", result=raw["data"])]
+    with patch.object(client, "_request", side_effect=responses) as req:
         resp = client.get_tweet_statement(tweet_id="1234567890")
     assert isinstance(resp, TweetStatementResponse)
     assert resp.data.final_statement.startswith("The author")
-    req.assert_called_once_with(
-        "POST",
-        "/tweet/statement",
-        json_body={"tweet_id": "1234567890"},
+    assert req.call_args_list[0] == (
+        ("POST", "/tweet/statement/async"),
+        {"json_body": {"tweet_id": "1234567890"}},
     )
 
 

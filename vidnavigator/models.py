@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field
 
+from .exceptions import VidNavigatorError, error_from_response
+
 try:
     from pydantic import field_validator as _field_validator
 
@@ -200,6 +202,13 @@ class CarouselVideoResult(BaseModel):
     message: Optional[str] = None
 
 
+def _parse_nested(model_cls: Any, raw: Any) -> Any:
+    """Pydantic v1/v2-compatible model parsing for use inside validators."""
+    if hasattr(model_cls, "model_validate"):
+        return model_cls.model_validate(raw)
+    return model_cls.parse_obj(raw)
+
+
 def _normalize_date(v: Any) -> Optional[str]:
     """Accept plain ISO strings or MongoDB ``{"$date": "..."}`` objects."""
     if v is None:
@@ -310,6 +319,108 @@ class UsageBlock(BaseModel):
 ExtractionTokenUsage = UsageBlock
 
 
+# ---------------------------------------------------------------------------
+# Async jobs (shared by /transcribe, /extract/video, /tweet/statement and TikTok)
+# ---------------------------------------------------------------------------
+
+
+class AsyncJobError(BaseModel):
+    """Failure details of an async job.
+
+    Carries the same ``error`` code and HTTP status the synchronous endpoint
+    would have returned; :meth:`to_exception` turns it into the matching SDK
+    exception.
+    """
+
+    error: Optional[str] = None
+    message: Optional[str] = None
+    http_status: Optional[int] = Field(None, alias="http_status")
+
+    def to_exception(self) -> VidNavigatorError:
+        return error_from_response(
+            self.http_status,
+            {"error": self.error, "message": self.message or self.error or "Async job failed"},
+        )
+
+
+class AsyncJobWebhookStatus(BaseModel):
+    """Delivery state of a job's webhook (the URL itself is never echoed back)."""
+
+    status: Optional[str] = None
+    attempts: Optional[int] = None
+    response_status: Optional[int] = Field(None, alias="response_status")
+    last_error: Optional[str] = Field(None, alias="last_error")
+    delivered_at: Optional[str] = Field(None, alias="delivered_at")
+
+
+class _TaskStatusMixin:
+    """Status helpers shared by every pollable task body.
+
+    Subclasses must define ``task_id``, ``task_status`` and ``error`` fields.
+    """
+
+    @property
+    def is_processing(self) -> bool:
+        return self.task_status == "processing"
+
+    @property
+    def is_completed(self) -> bool:
+        return self.task_status == "completed"
+
+    @property
+    def is_failed(self) -> bool:
+        return self.task_status == "failed"
+
+    @property
+    def is_finished(self) -> bool:
+        """True once the task reached a terminal state (``completed`` or ``failed``)."""
+        return self.task_status in ("completed", "failed")
+
+    def raise_for_error(self) -> None:
+        """Raise the SDK exception matching the failure when ``task_status == "failed"``.
+
+        The exception is built from the ``error`` object (``error``, ``message``,
+        ``http_status``), never from the deprecated ``error_message`` field.
+        """
+        if not self.is_failed:
+            return
+        if self.error is not None:
+            raise self.error.to_exception()
+        raise VidNavigatorError(f"Task {self.task_id} failed without error details")
+
+
+class AsyncJobSubmitData(BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    job_type: Optional[str] = Field(None, alias="job_type")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+    check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    webhook_url: Optional[str] = Field(None, alias="webhook_url")
+    message: Optional[str] = None
+    docs_url: Optional[str] = Field(None, alias="docs_url")
+
+
+class AsyncJobSubmitResponse(BaseModel):
+    """``202`` response from an async submit endpoint."""
+
+    status: str
+    data: AsyncJobSubmitData
+
+
+class _AsyncJobBase(_TaskStatusMixin, BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    job_type: Optional[str] = Field(None, alias="job_type")
+    request: Optional[Dict[str, Any]] = None
+    created_at: Optional[str] = Field(None, alias="created_at")
+    started_at: Optional[str] = Field(None, alias="started_at")
+    completed_at: Optional[str] = Field(None, alias="completed_at")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+    check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    webhook: Optional[AsyncJobWebhookStatus] = None
+    error: Optional[AsyncJobError] = None
+
+
 class TikTokVideo(BaseModel):
     id: Optional[str] = None
     track: Optional[str] = None
@@ -371,7 +482,7 @@ class TikTokProfilePagination(BaseModel):
         return _coerce_optional_int(v)
 
 
-class TikTokProfileTask(BaseModel):
+class TikTokProfileTask(_TaskStatusMixin, BaseModel):
     task_id: Optional[str] = Field(None, alias="task_id")
     task_status: Optional[str] = Field(None, alias="task_status")
     profile_url: Optional[str] = Field(None, alias="profile_url")
@@ -381,10 +492,13 @@ class TikTokProfileTask(BaseModel):
     videos: Optional[List[TikTokVideo]] = None
     pagination: Optional[TikTokProfilePagination] = None
     download_url: Optional[str] = Field(None, alias="download_url")
+    # Deprecated by the API in favour of ``error``; kept for existing integrations.
     error_message: Optional[str] = Field(None, alias="error_message")
     created_at: Optional[str] = Field(None, alias="created_at")
     completed_at: Optional[str] = Field(None, alias="completed_at")
     expires_at: Optional[str] = Field(None, alias="expires_at")
+    error: Optional[AsyncJobError] = None
+    webhook: Optional[AsyncJobWebhookStatus] = None
 
 
 class TikTokSearchAuthor(BaseModel):
@@ -439,6 +553,8 @@ class TikTokSearchResult(BaseModel):
 
 
 class TikTokSearchFilters(BaseModel):
+    sort_by: Optional[str] = Field(None, alias="sort_by")
+    published_within: Optional[str] = Field(None, alias="published_within")
     after_datetime: Optional[str] = Field(None, alias="after_datetime")
     before_datetime: Optional[str] = Field(None, alias="before_datetime")
     min_likes: Optional[int] = Field(None, alias="min_likes")
@@ -456,6 +572,8 @@ class TikTokSearchStatsSummary(BaseModel):
     pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
     results_count: Optional[int] = Field(None, alias="results_count")
     next_search_cursor: Optional[int] = Field(None, alias="next_search_cursor")
+    sort_by: Optional[str] = Field(None, alias="sort_by")
+    published_within: Optional[str] = Field(None, alias="published_within")
 
     @_pre_validator("pages_fetched", "results_count", "next_search_cursor")
     @classmethod
@@ -463,7 +581,7 @@ class TikTokSearchStatsSummary(BaseModel):
         return _coerce_optional_int(v)
 
 
-class TikTokSearchTask(BaseModel):
+class TikTokSearchTask(_TaskStatusMixin, BaseModel):
     task_id: Optional[str] = Field(None, alias="task_id")
     task_status: Optional[str] = Field(None, alias="task_status")
     query: Optional[str] = None
@@ -473,10 +591,13 @@ class TikTokSearchTask(BaseModel):
     results: Optional[List[TikTokSearchResult]] = None
     pagination: Optional[TikTokProfilePagination] = None
     download_url: Optional[str] = Field(None, alias="download_url")
+    # Deprecated by the API in favour of ``error``; kept for existing integrations.
     error_message: Optional[str] = Field(None, alias="error_message")
     created_at: Optional[str] = Field(None, alias="created_at")
     completed_at: Optional[str] = Field(None, alias="completed_at")
     expires_at: Optional[str] = Field(None, alias="expires_at")
+    error: Optional[AsyncJobError] = None
+    webhook: Optional[AsyncJobWebhookStatus] = None
 
     @_pre_validator("parallel_search_slices")
     @classmethod
@@ -621,6 +742,7 @@ class TikTokProfileSubmitData(BaseModel):
     profile_url: Optional[str] = Field(None, alias="profile_url")
     expires_at: Optional[str] = Field(None, alias="expires_at")
     check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    webhook_url: Optional[str] = Field(None, alias="webhook_url")
     message: Optional[str] = None
 
 
@@ -644,6 +766,7 @@ class TikTokSearchSubmitData(BaseModel):
     filters: Optional[TikTokSearchFilters] = None
     expires_at: Optional[str] = Field(None, alias="expires_at")
     check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    webhook_url: Optional[str] = Field(None, alias="webhook_url")
     message: Optional[str] = None
 
     @_pre_validator("max_results", "parallel_search_slices")
@@ -666,6 +789,94 @@ class TikTokSearchResponse(BaseModel):
 class TweetStatementResponse(BaseModel):
     status: str
     data: TweetStatementData
+    usage: Optional[UsageBlock] = None
+
+
+# --- Async job results ---
+
+
+class TranscribeJob(_AsyncJobBase):
+    """Body of ``GET /transcribe/{task_id}``.
+
+    Once completed, ``result`` is exactly the ``data`` block of the synchronous
+    :meth:`~vidnavigator.VidNavigatorClient.transcribe_video` response: a
+    :class:`TranscriptData`, or :class:`TranscribeAllVideosData` for carousel
+    jobs submitted with ``all_videos=True``.
+    """
+
+    result: Optional[Union[TranscribeAllVideosData, TranscriptData]] = None
+
+    @_pre_validator("result")
+    @classmethod
+    def _pick_result_model(cls, v):
+        if isinstance(v, dict):
+            if "videos" in v or "carousel_info" in v:
+                return _parse_nested(TranscribeAllVideosData, v)
+            return _parse_nested(TranscriptData, v)
+        return v
+
+
+class ExtractVideoJob(_AsyncJobBase):
+    """Body of ``GET /extract/video/{task_id}``.
+
+    Once completed, ``result`` holds the extracted data, matching the ``data``
+    field of the synchronous :meth:`~vidnavigator.VidNavigatorClient.extract_video_data`.
+    """
+
+    result: Optional[Dict[str, Any]] = None
+
+
+class TweetStatementJob(_AsyncJobBase):
+    """Body of ``GET /tweet/statement/{task_id}``; ``result`` mirrors the sync ``data`` block."""
+
+    result: Optional[TweetStatementData] = None
+
+
+class TranscribeJobResponse(BaseModel):
+    status: str
+    data: TranscribeJob
+    usage: Optional[UsageBlock] = None
+
+
+class ExtractVideoJobResponse(BaseModel):
+    status: str
+    data: ExtractVideoJob
+    usage: Optional[UsageBlock] = None
+
+
+class TweetStatementJobResponse(BaseModel):
+    status: str
+    data: TweetStatementJob
+    usage: Optional[UsageBlock] = None
+
+
+# --- Webhooks ---
+
+
+class WebhookEventData(BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    job_type: Optional[str] = Field(None, alias="job_type")
+    check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    result: Optional[Dict[str, Any]] = None
+    result_truncated: Optional[bool] = Field(None, alias="result_truncated")
+    stats: Optional[Dict[str, Any]] = None
+    error: Optional[AsyncJobError] = None
+
+
+class WebhookEvent(BaseModel):
+    """JSON body POSTed to your ``webhook_url`` when a job reaches a terminal state.
+
+    ``type`` is e.g. ``"transcribe.completed"`` or ``"tiktok_search.failed"``.
+    When ``data.result_truncated`` is true (result over 256 KB) or for TikTok
+    events, fetch the result by polling ``data.task_id`` instead.
+    """
+
+    id: Optional[str] = None
+    type: Optional[str] = None
+    created_at: Optional[str] = Field(None, alias="created_at")
+    api_version: Optional[str] = Field(None, alias="api_version")
+    data: Optional[WebhookEventData] = None
 
 
 class FileNamespacesData(BaseModel):

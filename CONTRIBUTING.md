@@ -12,13 +12,20 @@ vidnavigator-python/
     __init__.py           #   Package exports and __version__
     client.py             #   VidNavigatorClient with all API methods
     models.py             #   Pydantic response models
-    exceptions.py         #   Exception hierarchy
+    exceptions.py         #   Exception hierarchy + status/error-code mapping
+    jobs.py               #   AsyncJob handle: background-job polling, timeouts, results
+    webhooks.py           #   Webhook signature verification and event parsing
   tests/                  # Test suite (not published)
     fixtures/             #   Test media files (git-ignored)
     test_client_endpoints.py   # Mocked unit tests for every client method
+    conftest.py / helpers.py   # Shared fixtures (instant polling) and mock payload builders
+    test_async_jobs.py         # Job handles, polling schedule, timeouts, blocking calls
+    test_tiktok_webhooks.py    # TikTok jobs, webhook_url pass-through, new filters
+    test_webhooks.py           # Webhook signature verification tests
     test_error_mapping.py      # HTTP status -> exception mapping tests
     test_extract_endpoints.py  # Extraction endpoint unit tests
     test_models_extract.py     # Extraction model parsing tests
+    test_version.py            # Version consistency across the three declarations
     test_integration.py        # Live API integration tests
   test.py                 # Convenience CLI runner for pytest
   pyproject.toml          # Package metadata, dependencies, build config
@@ -74,6 +81,15 @@ pytest tests/test_integration.py -v
 ```
 
 Integration tests hit the live API. They are skipped automatically when the API key is not set, so `pytest tests/` is always safe to run.
+
+Some integration tests need extra inputs and are skipped unless these are set:
+
+| Variable | Enables |
+|---|---|
+| `VIDNAVIGATOR_TIKTOK_PROFILE_URL` | TikTok profile scrape lifecycle (e.g. `https://www.tiktok.com/@tiktok`) |
+| `VIDNAVIGATOR_TRANSCRIBE_URL` | Async transcription success path (a short non-YouTube video, e.g. a TikTok URL) |
+| `VIDNAVIGATOR_TWEET_ID` | Sync and async tweet statement tests |
+| `VIDNAVIGATOR_BASE_URL` | Run against a local or staging API |
 
 ### Test fixtures
 

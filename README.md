@@ -20,6 +20,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Namespace organization and scoped search | -- | Yes |
 | TikTok profile scraping and keyword search | Yes | -- |
 | Tweet claim analysis | Yes | -- |
+| Async jobs for long videos, with signed webhooks | Yes | -- |
 
 ## Supported Platforms
 
@@ -115,6 +116,8 @@ resp = client.transcribe_video(
     video_url="https://www.instagram.com/reel/C86ZvEaqRmo/",
 )
 ```
+
+`transcribe_video` runs as a [background job](#background-jobs): it submits the video, polls until the transcript is ready, and returns it. Long videos work the same way as short ones.
 
 For Instagram carousel posts with multiple videos:
 
@@ -215,6 +218,8 @@ print(resp.data)
 # {"mood": "upbeat", "main_topics": ["love", "commitment"], "has_spoken_lyrics": true}
 ```
 
+`extract_video_data` also runs as a [background job](#background-jobs), so auto-transcription works for long videos too. The extracted fields are in `resp.data`. `resp.video_info` is not populated for online videos, because job results carry only the extracted data; call `get_transcript(video_url=..., metadata_only=True)` if you need the metadata.
+
 ### From an uploaded file
 
 ```python
@@ -262,7 +267,7 @@ if resp.usage:
 
 Pass `include_usage=True` to most methods to attach a `usage` block describing exactly which meters were charged, how many credits were deducted, and (for AI endpoints) the LLM token tally.
 
-Supported on: `get_transcript`, `transcribe_video`, `analyze_video`, `analyze_file`, `extract_video_data`, `extract_file_data`, `search_youtube`, `search_files`, and the TikTok pollers (`get_tiktok_profile_scrape`, `get_tiktok_search` — usage appears once the task is `completed`).
+Supported on: `get_transcript`, `transcribe_video`, `analyze_video`, `analyze_file`, `extract_video_data`, `extract_file_data`, `search_youtube`, `search_files`, `get_tweet_statement`, `scrape_tiktok_profile`, `search_tiktok`, job handles (`job.result(include_usage=True)`), and the TikTok pagers (`get_tiktok_profile_scrape`, `get_tiktok_search`). For background jobs, usage is read when polling and appears only once the job is `completed`. Failed jobs have all their charges reverted.
 
 ```python
 resp = client.search_youtube(query="react best practices", include_usage=True)
@@ -294,30 +299,208 @@ For `/extract/*`, the token counts are also mirrored as flat `usage.prompt_token
 
 ---
 
-## TikTok Profile Scraping
+## Background Jobs
 
-TikTok profile scraping is asynchronous. Submit the scrape first, then poll until the task is no longer `processing` before reading videos:
+Speech-to-text and TikTok operations run as **background jobs** on the API: submitting returns a `task_id` immediately, and the result is read by polling. The SDK only uses these job endpoints. It never calls the synchronous speech-to-text endpoints, so long media works without special handling.
+
+Each operation comes in two shapes:
+
+| Operation | Blocking: wait and return the result | Non-blocking: return a job handle |
+|---|---|---|
+| Speech-to-text | `transcribe_video(...)` | `submit_transcribe_video(...)` |
+| Structured extraction | `extract_video_data(...)` | `submit_extract_video_data(...)` |
+| Tweet claim analysis | `get_tweet_statement(...)` | `submit_tweet_statement(...)` |
+| TikTok profile scrape | `scrape_tiktok_profile(...)` | `submit_tiktok_profile_scrape(...)` |
+| TikTok keyword search | `search_tiktok(...)` | `submit_tiktok_search(...)` |
+
+### Blocking: one call, one result
 
 ```python
-import time
+resp = client.transcribe_video(video_url="https://www.instagram.com/reel/C86ZvEaqRmo/")
+print(resp.data.transcript)
+```
 
-task = client.submit_tiktok_profile_scrape(
+The call submits the job, polls it, and returns the result, raising an exception if the job failed. It polls every second for the first 10 seconds, so short clips come back quickly, and then every 3 seconds. Polling is free and not rate-limited.
+
+### Non-blocking: submit now, collect later
+
+`submit_*` methods return an `AsyncJob` handle right away. Use them to run many jobs at once:
+
+```python
+urls = ["https://www.tiktok.com/@a/video/1", "https://www.tiktok.com/@b/video/2"]
+
+jobs = [client.submit_transcribe_video(video_url=url) for url in urls]
+for job in jobs:
+    print(job.task_id)  # save these: they are how you get back to the job
+
+results = [job.result() for job in jobs]  # waits for each in turn
+```
+
+An `AsyncJob` has:
+
+| Member | Description |
+|---|---|
+| `task_id` | The job's id. Keep it; see [Timeouts](#timeouts-never-lose-the-task_id). |
+| `job_type` | `"transcribe"`, `"extract_video"`, `"tweet_statement"`, `"tiktok_profile"` or `"tiktok_search"` |
+| `status()` | Polls once and returns `task_status` |
+| `done()` | Polls once; `True` when the job is `completed` or `failed` |
+| `result(timeout=..., include_usage=...)` | Waits, then returns the same object as the blocking method; raises if the job failed |
+| `wait(...)` | Waits, then returns the raw poll response (job metadata, `request` echo, `webhook` delivery status) |
+| `refresh()` | Polls once and returns the raw poll response |
+| `webhook_url`, `check_status_url`, `data` | What the API returned when the job was submitted |
+
+`result()` and `wait()` accept `timeout`, `include_usage`, `poll_interval` (default 3 seconds) and `fast_start` (default `True`, the 1-second polling for the first 10 seconds). For TikTok jobs they also accept `limit` and `cursor`.
+
+### Timeouts: never lose the `task_id`
+
+Blocking calls and `result()` wait up to `timeout` seconds (default 3600; pass `None` to wait indefinitely). When the timeout passes, they raise `AsyncJobTimeoutError`. The job itself **keeps running on the server**, and its result stays readable for **1 hour after it finishes**. The error carries the `task_id` and a ready-to-use handle:
+
+```python
+from vidnavigator import AsyncJobTimeoutError
+
+try:
+    resp = client.transcribe_video(video_url=url, timeout=600)
+except AsyncJobTimeoutError as exc:
+    save_for_later(exc.task_id)
+    resp = exc.job.result()  # or keep waiting right away
+```
+
+Later, or from another process, rebuild the handle from the saved id:
+
+```python
+job = client.resume_job("transcribe", task_id)
+if job.done():
+    resp = job.result()
+```
+
+### Failures
+
+A failed job reports an `error` object (`error`, `message`, `http_status`), and the SDK raises the matching exception, the same one the API would return for that status:
+
+```python
+from vidnavigator import BadRequestError, PaymentRequiredError
+
+try:
+    resp = client.transcribe_video(video_url=url)
+except PaymentRequiredError:
+    print("Out of transcription credit")
+except BadRequestError as exc:
+    print(exc.error_code, exc)  # e.g. "unsupported_platform"
+```
+
+To inspect a failure without an exception, use `job.wait(raise_on_failure=False)` and read `resp.data.error`.
+
+### Submit-time errors
+
+Some errors happen before a job exists. No task is created, so there is nothing to poll:
+
+| Exception | Status | When |
+|---|---|---|
+| `PaymentRequiredError` | 402 | Not enough credit to start the job |
+| `TooManyActiveJobsError` (subclass of `RateLimitExceeded`) | 429 | Too many jobs already running for your account; retry once some finish |
+| `BadRequestError` | 400 | Invalid parameters, an invalid extraction schema, or a non-public `webhook_url` |
+
+### Result types
+
+| Operation | `result()` / blocking return value |
+|---|---|
+| Transcribe | `TranscriptResponse` (`data.video_info`, `data.transcript`), or `TranscribeAllVideosResponse` with `all_videos=True` |
+| Extract | `ExtractionApiResponse` (`data` is a `dict` matching your schema) |
+| Tweet | `TweetStatementResponse` (`data.final_statement`, `data.detailed_analysis`, ...) |
+| TikTok profile / search | `TikTokProfileResponse` / `TikTokSearchResponse`: the first page of results |
+
+---
+
+## Webhooks
+
+A background job can also call you back when it finishes. Every job method, blocking or `submit_*`, accepts a `webhook_url` and passes it through to the API unchanged. Webhooks are optional. Polling always works, whether or not a webhook is configured.
+
+```python
+job = client.submit_extract_video_data(
+    video_url="https://www.tiktok.com/@user/video/1234567890",
+    schema={"summary": {"type": "String", "description": "One-line summary"}},
+    webhook_url="https://example.com/hooks/vidnavigator",
+)
+```
+
+- The URL must be a publicly reachable `https` address. Private, loopback and link-local hosts are rejected.
+- A per-request `webhook_url` overrides the account-level default set in **Studio → API**. Pass `webhook_url=""` to opt a single job out of that default.
+- For TikTok tasks, the event is a notification only: it carries `stats`, and you read the results with the poller.
+- If a result is larger than 256 KB, it is left out of the event (`data.result_truncated` is `True`). Fetch it with the poller instead.
+
+### Verify and parse deliveries
+
+Deliveries are signed with HMAC-SHA256 using your signing secret. `construct_webhook_event` checks the signature and timestamp, then returns a typed `WebhookEvent`. Always pass the **raw** request body, not re-serialized JSON:
+
+```python
+from flask import Flask, request
+from vidnavigator import WebhookSignatureError, construct_webhook_event
+
+app = Flask(__name__)
+WEBHOOK_SECRET = "your_signing_secret"
+
+@app.post("/hooks/vidnavigator")
+def vidnavigator_webhook():
+    try:
+        event = construct_webhook_event(
+            request.get_data(),
+            request.headers.get("X-VidNavigator-Signature"),
+            WEBHOOK_SECRET,
+        )
+    except WebhookSignatureError:
+        return "invalid signature", 400
+
+    delivery_id = request.headers.get("X-VidNavigator-Delivery")  # stable across retries
+    if already_processed(delivery_id):
+        return "", 200
+
+    if event.type == "transcribe.completed":
+        if event.data.result_truncated:
+            result = client.resume_job("transcribe", event.data.task_id).result().data
+        else:
+            result = event.data.result  # plain dict
+        save_transcript(event.data.task_id, result)
+    elif event.type.endswith(".failed"):
+        print(event.data.error.error, event.data.error.message)
+
+    return "", 200
+```
+
+Event types: `transcribe.*`, `extract_video.*`, `tweet_statement.*`, `tiktok_profile.*` and `tiktok_search.*`, each ending in `.completed` or `.failed`.
+
+`construct_webhook_event` rejects deliveries whose timestamp is more than 5 minutes away from the current time. Change the window with `tolerance_seconds=` (or pass `None` to skip the check). If you only need the check, `verify_webhook_signature(body, header, secret)` raises the same `WebhookSignatureError` without parsing the body.
+
+Delivery is at-least-once and best effort: up to 5 attempts over about 13 minutes. Your endpoint should return a 2xx response quickly and deduplicate on `X-VidNavigator-Delivery`. Treat polling as the source of truth. See the [webhooks guide](https://docs.vidnavigator.com/guides/webhooks) for the full contract.
+
+---
+
+## TikTok Profile Scraping
+
+TikTok profile scraping runs as a [background job](#background-jobs). `scrape_tiktok_profile` waits for it and returns the first page of videos:
+
+```python
+result = client.scrape_tiktok_profile(
     profile_url="https://www.tiktok.com/@tiktok",
     max_posts=100,
     after_datetime="2024-01-01",
+    limit=50,
 )
+task_id = result.data.task_id
 
-task_id = task.data.task_id
-
-while True:
-    result = client.get_tiktok_profile_scrape(task_id, limit=50)
-    if result.data.task_status != "processing":
-        break
-    time.sleep(5)
-
-if result.data.task_status == "failed":
-    raise RuntimeError(result.data.error_message or "TikTok scrape failed")
+for video in result.data.videos or []:
+    print(video.title, video.url)
 ```
+
+To start the scrape without waiting, use `submit_tiktok_profile_scrape(...)`, which returns an [`AsyncJob`](#non-blocking-submit-now-collect-later) handle. Then call `job.result(limit=50)` when you want the videos.
+
+| Parameter | Type | Description |
+|---|---|---|
+| `profile_url` | `str` | Public TikTok profile URL |
+| `max_posts` | `int` | Stop once this many matching videos are collected |
+| `after_datetime` / `before_datetime` | `str` / `date` / `datetime` | Only include videos published in this window |
+| `min_likes` / `max_likes` | `int` | Like-count filters |
+| `webhook_url` | `str` | Optional; passed through to the API (`""` opts out of your account default) |
+| `limit` | `int` | Page size of the returned first page (blocking call only) |
 
 ### Read results with pagination
 
@@ -416,24 +599,36 @@ for video in result.data.videos or []:
 
 ## TikTok Keyword Search
 
-TikTok keyword search is asynchronous. Submit a query first, then poll the task just like profile scraping:
+TikTok keyword search also runs as a background job. `search_tiktok` waits and returns the first page; `submit_tiktok_search` returns a handle instead. Page further with `get_tiktok_search(task_id, cursor=...)`, as for profiles.
 
 ```python
-task = client.submit_tiktok_search(
+result = client.search_tiktok(
     query="ai tools",
     max_results=100,
-    parallel_search_slices=2,
-    after_datetime="2024-01-01",
+    sort_by="most_liked",
+    published_within="this_month",
     min_views=1000,
+    limit=50,
 )
-
-result = client.get_tiktok_search(task.data.task_id, limit=50)
 
 for item in result.data.results or []:
     print(item.description, item.published_at, item.stats.views if item.stats else None, item.url)
+
+print(result.data.stats.sort_by, result.data.stats.published_within)  # what the search actually ran with
 ```
 
-Use `parallel_search_slices` from `1` to `4` to run concurrent TikTok search chains and deduplicate results. Higher values can return more unique videos but may consume proportionally more residential pages. Search results are sorted by `published_at` descending, and completed tasks may include a short-lived `download_url` for the full JSON payload.
+| Parameter | Type | Description |
+|---|---|---|
+| `query` | `str` | Keyword phrase (at least 2 characters) |
+| `max_results` | `int` | Cap on merged results. `0` or omitted means no cap. |
+| `parallel_search_slices` | `int` | `1`-`4` concurrent search chains, deduplicated. More slices return more unique videos but bill up to N times the residential pages. |
+| `sort_by` | `str` | `"relevance"`, `"most_liked"` or `"newest"`, applied by TikTok |
+| `published_within` | `str` | `"all"`, `"past_24_hours"`, `"this_week"`, `"this_month"`, `"last_3_months"` or `"last_6_months"` (rolling windows) |
+| `after_datetime` / `before_datetime` | `str` / `date` / `datetime` | Exact publish-date bounds |
+| `min_likes` / `max_likes` / `min_views` / `max_views` | `int` | Engagement filters |
+| `webhook_url` | `str` | Optional; passed through to the API (`""` opts out of your account default) |
+
+Without `sort_by`, results are sorted newest first. If you set `after_datetime` but not `published_within`, the smallest window that covers `after_datetime` is picked automatically. `parallel_search_slices` is not a time filter; use `published_within` or the datetime bounds for that. Completed tasks may include a short-lived `download_url` for the full JSON payload.
 
 ---
 
@@ -445,6 +640,8 @@ resp = client.get_tweet_statement(tweet_id="1234567890123456789")
 print(resp.data.final_statement)
 print(resp.data.claim_type)
 ```
+
+Videos attached to the tweet (or to the tweet it quotes) are transcribed in full, so this also runs as a [background job](#background-jobs). To start it without waiting, use `submit_tweet_statement(tweet_id=...)`, then call `.result()` on the handle.
 
 ---
 
@@ -600,13 +797,32 @@ except RateLimitExceeded:
 | `AuthenticationError` | 401 | Missing or invalid API key |
 | `PaymentRequiredError` | 402 | Usage limit reached -- upgrade required |
 | `AccessDeniedError` | 403 | Insufficient permissions |
-| `NotFoundError` | 404 | Resource not found |
+| `NotFoundError` | 404 | Resource not found (including an unknown or expired job `task_id`) |
 | `StorageQuotaExceededError` | 413 | Storage quota exceeded |
 | `RateLimitExceeded` | 429 | Too many requests |
+| `TooManyActiveJobsError` | 429 | Too many background jobs already running. Subclass of `RateLimitExceeded`. |
 | `GeoRestrictedError` | 451 | Content unavailable in your region |
 | `SystemOverloadError` | 503 | Temporary overload (check `.retry_after_seconds`) |
 | `ServerError` | 5xx | Unexpected server error |
+| `AsyncJobTimeoutError` | -- | A blocking call or `job.result()` hit its `timeout`; the job keeps running (use `.task_id` or `.job` to resume) |
+| `WebhookSignatureError` | -- | A webhook delivery failed signature or timestamp verification |
 | `VidNavigatorError` | -- | Base class for all errors |
+
+API exceptions also expose the details of the error response:
+
+```python
+from vidnavigator import BadRequestError
+
+try:
+    client.extract_video_data(video_url=url, schema={"x": {"type": "Nope", "description": "?"}})
+except BadRequestError as exc:
+    print(exc.status_code)  # 400
+    print(exc.error_code)   # "invalid_schema" -- machine-readable, safe to branch on
+    print(exc.docs_url)     # link to the relevant docs, when provided
+    print(exc.payload)      # the full JSON error body
+```
+
+The same exceptions are raised when a background job fails, built from the job's `error` object.
 
 ---
 
@@ -639,11 +855,13 @@ client = VidNavigatorClient(
 )
 ```
 
+The client's `timeout` applies to each HTTP request. It is separate from the `timeout` argument of blocking job methods such as `transcribe_video(timeout=...)`, which limits how long to wait for the job as a whole.
+
 The client can be used as a context manager to automatically close the HTTP session:
 
 ```python
 with VidNavigatorClient() as client:
-    resp = client.get_youtube_transcript(video_url="...")
+    resp = client.get_transcript(video_url="...")
     print(resp.data.transcript)
 ```
 

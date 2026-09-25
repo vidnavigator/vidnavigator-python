@@ -23,7 +23,15 @@ except ImportError:
 
 import pytest
 
-from vidnavigator import VidNavigatorClient, VidNavigatorError
+from vidnavigator import (
+    AsyncJob,
+    AsyncJobTimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    NotFoundError,
+    VidNavigatorClient,
+    VidNavigatorError,
+)
 
 
 def _dump(obj):
@@ -37,7 +45,10 @@ pytestmark = pytest.mark.skipif(not _api_key, reason="VIDNAVIGATOR_API_KEY not s
 TEST_VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 TEST_TIKTOK_PROFILE_URL = os.getenv("VIDNAVIGATOR_TIKTOK_PROFILE_URL")
 TEST_TWEET_ID = os.getenv("VIDNAVIGATOR_TWEET_ID")
+# A non-YouTube video that speech-to-text can process (e.g. a TikTok or Instagram reel).
+TEST_TRANSCRIBE_URL = os.getenv("VIDNAVIGATOR_TRANSCRIBE_URL")
 TIKTOK_TIMEOUT_SECONDS = int(os.getenv("VIDNAVIGATOR_TIKTOK_TIMEOUT_SECONDS", "180"))
+ASYNC_JOB_TIMEOUT_SECONDS = int(os.getenv("VIDNAVIGATOR_ASYNC_TIMEOUT_SECONDS", "300"))
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 TEST_VIDEO_FILE = FIXTURES_DIR / "video-test.mp4"
 
@@ -50,33 +61,21 @@ def client():
     return VidNavigatorClient(**kwargs)
 
 
-def _wait_for_tiktok_scrape(client, task_id):
-    deadline = time.time() + TIKTOK_TIMEOUT_SECONDS
-    while True:
-        result = client.get_tiktok_profile_scrape(task_id, limit=5)
-        if result.data.task_status != "processing":
-            return result
-        if time.time() >= deadline:
-            pytest.fail(f"TikTok scrape did not finish within {TIKTOK_TIMEOUT_SECONDS}s")
-        time.sleep(5)
-
-
-def _wait_for_tiktok_search(client, task_id):
-    deadline = time.time() + TIKTOK_TIMEOUT_SECONDS
-    while True:
-        result = client.get_tiktok_search(task_id, limit=5)
-        if result.data.task_status != "processing":
-            return result
-        if time.time() >= deadline:
-            pytest.fail(f"TikTok search did not finish within {TIKTOK_TIMEOUT_SECONDS}s")
-        time.sleep(5)
-
-
 # -- System ----------------------------------------------------------------
 
 def test_health_check(client):
     health = client.health_check()
     assert health.status == "success"
+
+
+def test_invalid_api_key_raises_authentication_error():
+    kwargs = {"api_key": "vna_invalid_sdk_test_key"}
+    if _base_url:
+        kwargs["base_url"] = _base_url
+    with VidNavigatorClient(**kwargs) as bad_client:
+        with pytest.raises(AuthenticationError) as exc_info:
+            bad_client.get_files(limit=1)
+    assert exc_info.value.status_code == 401
 
 
 def test_usage(client):
@@ -219,14 +218,12 @@ def test_extract_video_data_with_transcribe_option(client):
     reason="VIDNAVIGATOR_TIKTOK_PROFILE_URL not set",
 )
 def test_tiktok_profile_scrape_lifecycle(client):
-    task = client.submit_tiktok_profile_scrape(
+    result = client.scrape_tiktok_profile(
         profile_url=TEST_TIKTOK_PROFILE_URL,
         max_posts=2,
+        limit=5,
+        timeout=TIKTOK_TIMEOUT_SECONDS,
     )
-    assert task.status == "success"
-    assert task.data.task_id
-
-    result = _wait_for_tiktok_scrape(client, task.data.task_id)
     assert result.status == "success"
     assert result.data.task_status == "completed"
     assert result.data.videos is not None
@@ -253,14 +250,23 @@ def test_tiktok_search_lifecycle(client):
         query="ai tools",
         max_results=2,
         parallel_search_slices=1,
+        sort_by="most_liked",
+        published_within="this_month",
+        webhook_url="",
     )
-    assert task.status == "success"
-    assert task.data.task_id
+    assert isinstance(task, AsyncJob)
+    assert task.task_id
     assert task.data.query == "ai tools"
+    assert task.webhook_url is None
 
-    result = _wait_for_tiktok_search(client, task.data.task_id)
+    result = task.result(limit=5, include_usage=True, timeout=TIKTOK_TIMEOUT_SECONDS)
     assert result.status == "success"
     assert result.data.task_status == "completed"
+    assert result.data.is_completed
+    assert result.data.error is None
+    if result.data.stats:
+        assert result.data.stats.sort_by in (None, "most_liked")
+        assert result.data.stats.published_within in (None, "this_month")
     assert result.data.results is not None
     assert result.data.pagination is not None
 
@@ -287,11 +293,129 @@ def test_tiktok_search_lifecycle(client):
         assert isinstance(downloaded.get("results", []), list)
 
 
+def test_tiktok_search_rejects_private_webhook_url(client):
+    with pytest.raises(BadRequestError):
+        client.submit_tiktok_search(query="ai tools", webhook_url="https://127.0.0.1/hook")
+
+
+# -- Background jobs -------------------------------------------------------
+
+def test_extract_video_data_blocking_runs_as_job(client):
+    resp = client.extract_video_data(
+        video_url=TEST_VIDEO_URL,
+        schema={"mood": {"type": "String", "description": "One word describing the mood"}},
+        transcribe=False,
+        include_usage=True,
+        timeout=ASYNC_JOB_TIMEOUT_SECONDS,
+    )
+    assert resp.status == "success"
+    assert "mood" in resp.data
+    if resp.usage:
+        assert resp.usage.charge_for("analysis_request") is not None
+
+
+def test_extract_video_job_handle_lifecycle(client):
+    handle = client.submit_extract_video_data(
+        video_url=TEST_VIDEO_URL,
+        schema={"mood": {"type": "String", "description": "One word describing the mood"}},
+        transcribe=False,
+        webhook_url="",
+    )
+    assert isinstance(handle, AsyncJob)
+    assert handle.job_type == "extract_video"
+    assert handle.check_status_url.endswith(handle.task_id)
+    assert handle.webhook_url is None
+    assert handle.status() in ("processing", "completed")
+
+    done = handle.wait(timeout=ASYNC_JOB_TIMEOUT_SECONDS)
+    assert done.data.is_completed
+    assert done.data.request["video_url"] == TEST_VIDEO_URL
+    assert done.data.completed_at
+
+    # Reading a finished job does not consume it; a fresh handle from the id sees it too.
+    resumed = client.resume_job("extract_video", handle.task_id)
+    assert resumed.done()
+    assert resumed.result().data == done.data.result
+
+
+def test_extract_invalid_schema_rejected_at_submit(client):
+    with pytest.raises(BadRequestError) as exc_info:
+        client.submit_extract_video_data(
+            video_url=TEST_VIDEO_URL,
+            schema={"mood": {"type": "NotAType", "description": "x"}},
+        )
+    assert exc_info.value.error_code == "invalid_schema"
+
+
+def test_submit_rejects_private_webhook_url(client):
+    with pytest.raises(BadRequestError):
+        client.submit_transcribe_video(
+            video_url="https://www.tiktok.com/@tiktok/video/1",
+            webhook_url="https://127.0.0.1/hook",
+        )
+
+
+def test_failed_job_raises_from_error_object(client):
+    """YouTube is not supported by /transcribe, so the job fails deterministically (charges reverted)."""
+    handle = client.submit_transcribe_video(video_url=TEST_VIDEO_URL)
+
+    failed = handle.wait(raise_on_failure=False, timeout=ASYNC_JOB_TIMEOUT_SECONDS)
+    assert failed.data.is_failed
+    assert failed.data.error.error == "unsupported_platform"
+    assert failed.data.error.http_status == 400
+    assert failed.usage is None
+
+    with pytest.raises(BadRequestError) as exc_info:
+        handle.result()
+    assert exc_info.value.error_code == "unsupported_platform"
+    assert exc_info.value.status_code == 400
+
+
+def test_blocking_timeout_keeps_task_id_and_resumes(client):
+    handle = client.submit_extract_video_data(
+        video_url=TEST_VIDEO_URL,
+        schema={"mood": {"type": "String", "description": "One word describing the mood"}},
+        transcribe=False,
+    )
+    try:
+        handle.wait(timeout=0)
+    except AsyncJobTimeoutError as exc:
+        assert exc.task_id == handle.task_id
+        resumed = exc.job
+    else:  # finished before the first poll returned
+        resumed = client.resume_job("extract_video", handle.task_id)
+    assert "mood" in resumed.result(timeout=ASYNC_JOB_TIMEOUT_SECONDS).data
+
+
+@pytest.mark.skipif(not TEST_TRANSCRIBE_URL, reason="VIDNAVIGATOR_TRANSCRIBE_URL not set")
+def test_transcribe_video_blocking(client):
+    resp = client.transcribe_video(
+        video_url=TEST_TRANSCRIBE_URL,
+        transcript_text=True,
+        include_usage=True,
+        timeout=ASYNC_JOB_TIMEOUT_SECONDS,
+    )
+    assert resp.data.video_info is not None
+    assert isinstance(resp.data.transcript, str)
+    if resp.usage:
+        assert resp.usage.total_credits is not None
+
+
+@pytest.mark.parametrize(
+    "job_type",
+    ["transcribe", "extract_video", "tweet_statement"],
+)
+def test_unknown_task_raises_not_found(client, job_type):
+    with pytest.raises(NotFoundError) as exc_info:
+        client.resume_job(job_type, "00000000-0000-0000-0000-000000000000").status()
+    assert exc_info.value.error_code == "task_not_found"
+
+
 # -- Tweet analysis ---------------------------------------------------------
 
 @pytest.mark.skipif(not TEST_TWEET_ID, reason="VIDNAVIGATOR_TWEET_ID not set")
 def test_tweet_statement(client):
-    resp = client.get_tweet_statement(tweet_id=TEST_TWEET_ID)
+    resp = client.get_tweet_statement(tweet_id=TEST_TWEET_ID, timeout=ASYNC_JOB_TIMEOUT_SECONDS)
     assert resp.status == "success"
     assert resp.data.final_statement
     assert resp.data.statement_query

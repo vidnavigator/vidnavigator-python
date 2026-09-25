@@ -11,23 +11,16 @@ from typing import Any, Dict, List, Optional, Union
 import requests
 
 from .exceptions import (
-    AccessDeniedError,
     AuthenticationError,
-    BadRequestError,
-    GeoRestrictedError,
-    NotFoundError,
-    PaymentRequiredError,
-    RateLimitExceeded,
-    ServerError,
-    StorageQuotaExceededError,
-    SystemOverloadError,
     VidNavigatorError,
+    error_from_response,
 )
+from .jobs import DEFAULT_JOB_TIMEOUT, AsyncJob
 from . import models
 
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/1.0.5"
+USER_AGENT = "vidnavigator-python/2.0.0"
 
 
 def _parse_model(model_cls: Any, raw: Any) -> Any:
@@ -136,36 +129,31 @@ class VidNavigatorClient:
         if response.ok:
             return payload
 
-        status_code = response.status_code
-        error_msg = payload.get("message") or response.reason
+        if not isinstance(payload, dict):
+            payload = {"status": "error", "message": str(payload)}
+        raise error_from_response(response.status_code, payload, reason=response.reason)
 
-        if status_code == 400:
-            raise BadRequestError(error_msg)
-        if status_code == 402:
-            raise PaymentRequiredError(error_msg)
-        if status_code == 403:
-            raise AccessDeniedError(error_msg)
-        if status_code == 404:
-            raise NotFoundError(error_msg)
-        if status_code == 413:
-            raise StorageQuotaExceededError(error_msg)
-        if status_code == 429:
-            raise RateLimitExceeded(error_msg)
-        if status_code == 451:
-            raise GeoRestrictedError(error_msg)
-        if status_code == 503:
-            retry_int = None
-            raw_retry = payload.get("retry_after_seconds")
-            if raw_retry is not None:
-                try:
-                    retry_int = int(raw_retry)
-                except (TypeError, ValueError):
-                    retry_int = None
-            raise SystemOverloadError(error_msg, retry_after_seconds=retry_int)
-        if status_code >= 500:
-            raise ServerError(error_msg)
+    def _job_from_submit(self, job_type: str, model_cls: Any, raw: Any) -> AsyncJob:
+        submitted = _parse_model(model_cls, raw)
+        task_id = submitted.data.task_id if submitted.data is not None else None
+        if not task_id:
+            raise VidNavigatorError(f"{job_type} submit response did not include a task_id")
+        return AsyncJob(self, job_type, task_id, submit_response=submitted)
 
-        raise VidNavigatorError(f"Unexpected response ({status_code}): {error_msg}")
+    # ---------------------------------------------------------------------
+    # Background jobs
+    # ---------------------------------------------------------------------
+
+    def resume_job(self, job_type: str, task_id: str) -> AsyncJob:
+        """Rebuild the handle of a job submitted earlier from its ``task_id``.
+
+        *job_type* is one of ``"transcribe"``, ``"extract_video"``,
+        ``"tweet_statement"``, ``"tiktok_profile"`` or ``"tiktok_search"``.
+        Use it after an :class:`~vidnavigator.AsyncJobTimeoutError`, a restart,
+        or a webhook delivery. Results stay readable for 1 hour after the job
+        finishes.
+        """
+        return AsyncJob(self, job_type, task_id)
 
     # ---------------------------------------------------------------------
     # Public API methods
@@ -232,6 +220,35 @@ class VidNavigatorClient:
             include_usage=include_usage,
         )
 
+    def submit_transcribe_video(
+        self,
+        *,
+        video_url: str,
+        transcript_text: bool = False,
+        all_videos: bool = False,
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start a speech-to-text transcription job and return its handle immediately.
+
+        Call ``.result()`` on the handle to wait for a
+        :class:`~vidnavigator.models.TranscriptResponse` (or
+        :class:`~vidnavigator.models.TranscribeAllVideosResponse` when
+        *all_videos* is True), or ``.status()`` to check on it.
+
+        *webhook_url* is passed through to the API: it overrides your
+        account-level default webhook, and ``""`` opts this job out of it.
+        Polling works whether or not a webhook is configured.
+        """
+        payload: Dict[str, Any] = {
+            "video_url": video_url,
+            "transcript_text": transcript_text,
+            "all_videos": all_videos,
+        }
+        if webhook_url is not None:
+            payload["webhook_url"] = webhook_url
+        raw = self._request("POST", "/transcribe/async", json_body=payload)
+        return self._job_from_submit("transcribe", models.AsyncJobSubmitResponse, raw)
+
     def transcribe_video(
         self,
         *,
@@ -239,24 +256,26 @@ class VidNavigatorClient:
         transcript_text: bool = False,
         all_videos: bool = False,
         include_usage: bool = False,
+        webhook_url: Optional[str] = None,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> Union[models.TranscriptResponse, models.TranscribeAllVideosResponse]:
-        """Transcribe an online video using speech-to-text.
+        """Transcribe an online video using speech-to-text and wait for the result.
 
-        When *all_videos* is True (carousel posts), the response shape includes
+        Runs as a background job (``POST /transcribe/async`` then polling), so
+        long media is not subject to the synchronous endpoint's duration limit.
+        When *all_videos* is True (carousel posts), the response includes
         *carousel_info* and *videos* instead of a single *video_info*.
 
-        Set *include_usage* to receive a per-call ``usage`` block on the response.
+        Raises :class:`~vidnavigator.AsyncJobTimeoutError` (carrying the
+        ``task_id``) if the job is still running after *timeout* seconds.
         """
-        payload: Dict[str, Any] = {
-            "video_url": video_url,
-            "transcript_text": transcript_text,
-            "all_videos": all_videos,
-            "include_usage": include_usage,
-        }
-        raw = self._request("POST", "/transcribe", json_body=payload)
-        if all_videos:
-            return _parse_model(models.TranscribeAllVideosResponse, raw)
-        return _parse_model(models.TranscriptResponse, raw)
+        job = self.submit_transcribe_video(
+            video_url=video_url,
+            transcript_text=transcript_text,
+            all_videos=all_videos,
+            webhook_url=webhook_url,
+        )
+        return job.result(timeout=timeout, include_usage=include_usage)
 
     # Files ------------------------------------------------------------------------
     def get_files(
@@ -333,6 +352,37 @@ class VidNavigatorClient:
         return _parse_model(models.AnalysisResponse, raw)
 
     # Extraction -------------------------------------------------------------------
+    def submit_extract_video_data(
+        self,
+        *,
+        video_url: str,
+        schema: Optional[Dict[str, Any]] = None,
+        schema_file: Optional[str] = None,
+        what_to_extract: Optional[str] = None,
+        transcribe: bool = True,
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start a structured-data extraction job and return its handle immediately.
+
+        Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
+        JSON/YAML schema file as multipart/form-data. The schema is validated at
+        submit time, so an invalid one raises before anything is billed.
+        ``.result()`` on the handle returns an
+        :class:`~vidnavigator.models.ExtractionApiResponse`.
+        """
+        raw = self._post_extract_video(
+            "/extract/video/async",
+            {
+                "video_url": video_url,
+                "transcribe": transcribe,
+                "what_to_extract": what_to_extract,
+                "webhook_url": webhook_url,
+            },
+            schema=schema,
+            schema_file=schema_file,
+        )
+        return self._job_from_submit("extract_video", models.AsyncJobSubmitResponse, raw)
+
     def extract_video_data(
         self,
         *,
@@ -342,42 +392,55 @@ class VidNavigatorClient:
         what_to_extract: Optional[str] = None,
         transcribe: bool = True,
         include_usage: bool = False,
+        webhook_url: Optional[str] = None,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an online video transcript using a custom schema.
+        """Extract structured data from an online video transcript and wait for the result.
 
-        Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
-        JSON/YAML schema file as multipart/form-data.
+        Runs as a background job (``POST /extract/video/async`` then polling).
+        The extracted fields are in ``.data``. ``.video_info`` is not populated,
+        because job results carry only the extracted data.
+        """
+        job = self.submit_extract_video_data(
+            video_url=video_url,
+            schema=schema,
+            schema_file=schema_file,
+            what_to_extract=what_to_extract,
+            transcribe=transcribe,
+            webhook_url=webhook_url,
+        )
+        return job.result(timeout=timeout, include_usage=include_usage)
+
+    def _post_extract_video(
+        self,
+        path: str,
+        fields: Dict[str, Any],
+        *,
+        schema: Optional[Dict[str, Any]],
+        schema_file: Optional[str],
+    ) -> Any:
+        """POST an extract/video request as JSON, or multipart when *schema_file* is set.
+
+        ``None`` values in *fields* are omitted.
         """
         if (schema is None) == (schema_file is None):
             raise ValueError("Pass exactly one of schema or schema_file.")
+        fields = {k: v for k, v in fields.items() if v is not None}
 
         if schema_file is not None:
             if not os.path.isfile(schema_file):
                 raise FileNotFoundError(schema_file)
-            data: Dict[str, Any] = {
-                "video_url": video_url,
-                "transcribe": "true" if transcribe else "false",
-                "include_usage": "true" if include_usage else "false",
+            data = {
+                k: ("true" if v else "false") if isinstance(v, bool) else v
+                for k, v in fields.items()
             }
-            if what_to_extract is not None:
-                data["what_to_extract"] = what_to_extract
             filename = os.path.basename(schema_file)
             content_type = _guess_schema_content_type(schema_file)
             with open(schema_file, "rb") as fp:
                 files = {"schema": (filename, fp, content_type)}
-                raw = self._request("POST", "/extract/video", data=data, files=files)
-            return _parse_model(models.ExtractionApiResponse, raw)
+                return self._request("POST", path, data=data, files=files)
 
-        payload: Dict[str, Any] = {
-            "video_url": video_url,
-            "schema": schema,
-            "transcribe": transcribe,
-            "include_usage": include_usage,
-        }
-        if what_to_extract is not None:
-            payload["what_to_extract"] = what_to_extract
-        raw = self._request("POST", "/extract/video", json_body=payload)
-        return _parse_model(models.ExtractionApiResponse, raw)
+        return self._request("POST", path, json_body={**fields, "schema": schema})
 
     # TikTok -----------------------------------------------------------------------
     def submit_tiktok_profile_scrape(
@@ -389,11 +452,18 @@ class VidNavigatorClient:
         before_datetime: Optional[Union[str, date, datetime]] = None,
         min_likes: Optional[int] = None,
         max_likes: Optional[int] = None,
-    ) -> models.TikTokProfileSubmitResponse:
-        """Start an async TikTok profile scrape and return the task metadata.
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start a TikTok profile scrape job and return its handle immediately.
 
-        Datetime filters must be YYYY-MM-DD strings or ISO format with timezone. 
+        Datetime filters must be YYYY-MM-DD strings or ISO format with timezone.
         ``date`` and ``datetime`` values are accepted and serialized automatically.
+
+        ``.result(limit=..., cursor=...)`` on the handle waits and returns a
+        :class:`~vidnavigator.models.TikTokProfileResponse` page; page further
+        with :meth:`get_tiktok_profile_scrape`. *webhook_url* is passed through
+        (``""`` opts out of your account default); the event carries ``stats``
+        only.
         """
         payload: Dict[str, Any] = {"profile_url": profile_url}
         if max_posts is not None:
@@ -406,8 +476,40 @@ class VidNavigatorClient:
             payload["min_likes"] = min_likes
         if max_likes is not None:
             payload["max_likes"] = max_likes
+        if webhook_url is not None:
+            payload["webhook_url"] = webhook_url
         raw = self._request("POST", "/tiktok/profile", json_body=payload)
-        return _parse_model(models.TikTokProfileSubmitResponse, raw)
+        return self._job_from_submit("tiktok_profile", models.TikTokProfileSubmitResponse, raw)
+
+    def scrape_tiktok_profile(
+        self,
+        *,
+        profile_url: str,
+        max_posts: Optional[int] = None,
+        after_datetime: Optional[Union[str, date, datetime]] = None,
+        before_datetime: Optional[Union[str, date, datetime]] = None,
+        min_likes: Optional[int] = None,
+        max_likes: Optional[int] = None,
+        webhook_url: Optional[str] = None,
+        limit: int = 50,
+        include_usage: bool = False,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+    ) -> models.TikTokProfileResponse:
+        """Scrape a TikTok profile and wait for the first page of *limit* videos.
+
+        Page further with :meth:`get_tiktok_profile_scrape` using
+        ``response.data.task_id`` and ``response.data.pagination.next_cursor``.
+        """
+        job = self.submit_tiktok_profile_scrape(
+            profile_url=profile_url,
+            max_posts=max_posts,
+            after_datetime=after_datetime,
+            before_datetime=before_datetime,
+            min_likes=min_likes,
+            max_likes=max_likes,
+            webhook_url=webhook_url,
+        )
+        return job.result(timeout=timeout, include_usage=include_usage, limit=limit)
 
     def get_tiktok_profile_scrape(
         self,
@@ -417,7 +519,7 @@ class VidNavigatorClient:
         limit: int = 50,
         include_usage: bool = False,
     ) -> models.TikTokProfileResponse:
-        """Poll an async TikTok profile scrape task and retrieve a page of videos.
+        """Fetch a TikTok profile scrape task once and retrieve a page of videos.
 
         Set *include_usage* to receive a ``usage`` block (only populated once the
         task is ``completed``). Polling itself is free.
@@ -436,19 +538,39 @@ class VidNavigatorClient:
         query: str,
         max_results: Optional[int] = None,
         parallel_search_slices: Optional[int] = None,
+        sort_by: Optional[str] = None,
+        published_within: Optional[str] = None,
         after_datetime: Optional[Union[str, date, datetime]] = None,
         before_datetime: Optional[Union[str, date, datetime]] = None,
         min_likes: Optional[int] = None,
         max_likes: Optional[int] = None,
         min_views: Optional[int] = None,
         max_views: Optional[int] = None,
-    ) -> models.TikTokSearchSubmitResponse:
-        """Start an async TikTok keyword search and return the task metadata."""
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start a TikTok keyword search job and return its handle immediately.
+
+        Parameters
+        ----------
+        sort_by:
+            ``"relevance"``, ``"most_liked"`` or ``"newest"`` (applied by TikTok).
+            When omitted, results come back newest first.
+        published_within:
+            ``"all"``, ``"past_24_hours"``, ``"this_week"``, ``"this_month"``,
+            ``"last_3_months"`` or ``"last_6_months"`` (rolling windows).
+        webhook_url:
+            Passed through to the API (``""`` opts out of your account
+            default). The event carries ``stats`` only.
+        """
         payload: Dict[str, Any] = {"query": query}
         if max_results is not None:
             payload["max_results"] = max_results
         if parallel_search_slices is not None:
             payload["parallel_search_slices"] = parallel_search_slices
+        if sort_by is not None:
+            payload["sort_by"] = sort_by
+        if published_within is not None:
+            payload["published_within"] = published_within
         if after_datetime is not None:
             payload["after_datetime"] = _format_datetime(after_datetime)
         if before_datetime is not None:
@@ -461,8 +583,50 @@ class VidNavigatorClient:
             payload["min_views"] = min_views
         if max_views is not None:
             payload["max_views"] = max_views
+        if webhook_url is not None:
+            payload["webhook_url"] = webhook_url
         raw = self._request("POST", "/tiktok/search", json_body=payload)
-        return _parse_model(models.TikTokSearchSubmitResponse, raw)
+        return self._job_from_submit("tiktok_search", models.TikTokSearchSubmitResponse, raw)
+
+    def search_tiktok(
+        self,
+        *,
+        query: str,
+        max_results: Optional[int] = None,
+        parallel_search_slices: Optional[int] = None,
+        sort_by: Optional[str] = None,
+        published_within: Optional[str] = None,
+        after_datetime: Optional[Union[str, date, datetime]] = None,
+        before_datetime: Optional[Union[str, date, datetime]] = None,
+        min_likes: Optional[int] = None,
+        max_likes: Optional[int] = None,
+        min_views: Optional[int] = None,
+        max_views: Optional[int] = None,
+        webhook_url: Optional[str] = None,
+        limit: int = 50,
+        include_usage: bool = False,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+    ) -> models.TikTokSearchResponse:
+        """Run a TikTok keyword search and wait for the first page of *limit* results.
+
+        Page further with :meth:`get_tiktok_search`. See
+        :meth:`submit_tiktok_search` for the parameters.
+        """
+        job = self.submit_tiktok_search(
+            query=query,
+            max_results=max_results,
+            parallel_search_slices=parallel_search_slices,
+            sort_by=sort_by,
+            published_within=published_within,
+            after_datetime=after_datetime,
+            before_datetime=before_datetime,
+            min_likes=min_likes,
+            max_likes=max_likes,
+            min_views=min_views,
+            max_views=max_views,
+            webhook_url=webhook_url,
+        )
+        return job.result(timeout=timeout, include_usage=include_usage, limit=limit)
 
     def get_tiktok_search(
         self,
@@ -472,7 +636,7 @@ class VidNavigatorClient:
         limit: int = 50,
         include_usage: bool = False,
     ) -> models.TikTokSearchResponse:
-        """Poll an async TikTok keyword search task and retrieve a page of results.
+        """Fetch a TikTok keyword search task once and retrieve a page of results.
 
         Set *include_usage* to receive a ``usage`` block (only populated once the
         task is ``completed``). Polling itself is free.
@@ -716,10 +880,39 @@ class VidNavigatorClient:
         return _parse_model(models.HealthResponse, raw)
 
     # Tweet analysis ---------------------------------------------------------------
-    def get_tweet_statement(self, *, tweet_id: str) -> models.TweetStatementResponse:
-        """Extract a structured claim analysis from an X/Twitter tweet."""
-        raw = self._request("POST", "/tweet/statement", json_body={"tweet_id": tweet_id})
-        return _parse_model(models.TweetStatementResponse, raw)
+    def submit_tweet_statement(
+        self,
+        *,
+        tweet_id: str,
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start a tweet claim analysis job and return its handle immediately.
+
+        ``.result()`` on the handle returns a
+        :class:`~vidnavigator.models.TweetStatementResponse`. *webhook_url* is
+        passed through (``""`` opts out of your account default).
+        """
+        payload: Dict[str, Any] = {"tweet_id": tweet_id}
+        if webhook_url is not None:
+            payload["webhook_url"] = webhook_url
+        raw = self._request("POST", "/tweet/statement/async", json_body=payload)
+        return self._job_from_submit("tweet_statement", models.AsyncJobSubmitResponse, raw)
+
+    def get_tweet_statement(
+        self,
+        *,
+        tweet_id: str,
+        include_usage: bool = False,
+        webhook_url: Optional[str] = None,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+    ) -> models.TweetStatementResponse:
+        """Extract a structured claim analysis from an X/Twitter tweet and wait for it.
+
+        Runs as a background job (``POST /tweet/statement/async`` then polling),
+        so tweets carrying long videos work too.
+        """
+        job = self.submit_tweet_statement(tweet_id=tweet_id, webhook_url=webhook_url)
+        return job.result(timeout=timeout, include_usage=include_usage)
 
     # Convenience ------------------------------------------------------------------
     def close(self) -> None:
