@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vidnavigator import AsyncJob, BadRequestError, VidNavigatorClient, VidNavigatorError
+from vidnavigator import Job, BadRequestError, VidNavigatorClient, VidNavigatorError
 from vidnavigator.models import TikTokProfileResponse, TikTokSearchResponse
 
 from .helpers import tiktok_task
@@ -68,7 +68,7 @@ def test_submit_tiktok_profile_scrape_returns_handle(client):
             after_datetime=date(2024, 1, 1),
             webhook_url="https://example.com/hook",
         )
-    assert isinstance(handle, AsyncJob)
+    assert isinstance(handle, Job)
     assert handle.job_type == "tiktok_profile"
     assert handle.task_id == "p1"
     assert handle.webhook_url == "https://example.com/hook"

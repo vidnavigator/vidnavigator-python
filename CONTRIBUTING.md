@@ -13,7 +13,7 @@ vidnavigator-python/
     client.py             #   VidNavigatorClient with all API methods
     models.py             #   Pydantic response models
     exceptions.py         #   Exception hierarchy + status/error-code mapping
-    jobs.py               #   AsyncJob handle: background-job polling, timeouts, results
+    jobs.py               #   Job handle: background-job polling, timeouts, results
     webhooks.py           #   Webhook signature verification and event parsing
   tests/                  # Test suite (not published)
     fixtures/             #   Test media files (git-ignored)

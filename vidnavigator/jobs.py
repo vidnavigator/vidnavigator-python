@@ -1,8 +1,8 @@
 """Handles for VidNavigator background jobs.
 
 Every speech-to-text and TikTok operation runs as a background job: submitting
-returns a ``task_id`` immediately and the result is read by polling. An
-:class:`AsyncJob` wraps one such job.
+returns a ``task_id`` immediately and the result is read by polling. A
+:class:`Job` wraps one such job.
 """
 
 from __future__ import annotations
@@ -10,7 +10,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
-from .exceptions import AsyncJobTimeoutError, VidNavigatorError
+from .exceptions import JobTimeoutError, VidNavigatorError
 from . import models
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -63,7 +63,7 @@ def _finalize(job_type: str, resp: Any) -> Any:
     return resp
 
 
-class AsyncJob:
+class Job:
     """A background job on the VidNavigator API.
 
     Obtain one from a ``submit_*`` method, or rebuild one from a saved id with
@@ -93,7 +93,7 @@ class AsyncJob:
         self.last_response: Any = None
 
     def __repr__(self) -> str:
-        return f"AsyncJob(job_type={self.job_type!r}, task_id={self.task_id!r})"
+        return f"Job(job_type={self.job_type!r}, task_id={self.task_id!r})"
 
     # -- Submit-time metadata -------------------------------------------------
     @property
@@ -151,7 +151,7 @@ class AsyncJob:
         seconds when ``fast_start`` is on). If the job failed, raises the
         exception matching its ``error`` object unless ``raise_on_failure`` is
         False. If ``timeout`` seconds pass first, raises
-        :class:`~vidnavigator.AsyncJobTimeoutError` carrying this job's
+        :class:`~vidnavigator.JobTimeoutError` carrying this job's
         ``task_id``; pass ``timeout=None`` to wait indefinitely.
         """
         start = time.monotonic()
@@ -164,7 +164,7 @@ class AsyncJob:
             if deadline is not None:
                 remaining = deadline - now
                 if remaining <= 0:
-                    raise AsyncJobTimeoutError(
+                    raise JobTimeoutError(
                         f"{self.job_type} job {self.task_id} still "
                         f"{resp.data.task_status!r} after {timeout}s; it keeps running "
                         f"server-side, resume it with this task_id",

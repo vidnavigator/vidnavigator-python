@@ -3,7 +3,7 @@
 __version__ = "2.0.0"
 
 from .client import VidNavigatorClient
-from .jobs import AsyncJob
+from .jobs import Job
 from .exceptions import (
     VidNavigatorError,
     AuthenticationError,
@@ -17,14 +17,14 @@ from .exceptions import (
     StorageQuotaExceededError,
     SystemOverloadError,
     ServerError,
-    AsyncJobTimeoutError,
+    JobTimeoutError,
     WebhookSignatureError,
 )
 from .webhooks import construct_webhook_event, verify_webhook_signature
 
 __all__ = [
     "VidNavigatorClient",
-    "AsyncJob",
+    "Job",
     "VidNavigatorError",
     "AuthenticationError",
     "AccessDeniedError",
@@ -37,7 +37,7 @@ __all__ = [
     "StorageQuotaExceededError",
     "SystemOverloadError",
     "ServerError",
-    "AsyncJobTimeoutError",
+    "JobTimeoutError",
     "WebhookSignatureError",
     "construct_webhook_event",
     "verify_webhook_signature",

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vidnavigator import AsyncJob, VidNavigatorClient
+from vidnavigator import Job, VidNavigatorClient
 from vidnavigator.models import (
     TranscriptResponse,
     TranscribeAllVideosResponse,
@@ -505,7 +505,7 @@ def test_submit_tiktok_profile_scrape(client):
             before_datetime=datetime(2024, 12, 31, 10, 30, tzinfo=timezone.utc),
             min_likes=1000,
         )
-    assert isinstance(handle, AsyncJob)
+    assert isinstance(handle, Job)
     assert isinstance(handle.submit_response, TikTokProfileSubmitResponse)
     assert handle.task_id == "task_123"
     assert handle.data.task_id == "task_123"

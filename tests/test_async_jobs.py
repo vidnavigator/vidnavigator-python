@@ -6,8 +6,8 @@ import pytest
 import requests
 
 from vidnavigator import (
-    AsyncJob,
-    AsyncJobTimeoutError,
+    Job,
+    JobTimeoutError,
     BadRequestError,
     PaymentRequiredError,
     RateLimitExceeded,
@@ -95,13 +95,13 @@ SCHEMA = {"mood": {"type": "String", "description": "One word mood"}}
 def test_submit_transcribe_video_returns_handle(client):
     with patch.object(client, "_request", return_value=accepted("transcribe")) as req:
         handle = client.submit_transcribe_video(video_url="https://example.com/v")
-    assert isinstance(handle, AsyncJob)
+    assert isinstance(handle, Job)
     assert handle.task_id == "task_1"
     assert handle.job_type == "transcribe"
     assert handle.check_status_url == "/v1/transcribe/task_1"
     assert handle.webhook_url is None
     assert handle.data.docs_url.endswith("async-jobs")
-    assert repr(handle) == "AsyncJob(job_type='transcribe', task_id='task_1')"
+    assert repr(handle) == "Job(job_type='transcribe', task_id='task_1')"
     req.assert_called_once_with(
         "POST",
         "/transcribe/async",
@@ -448,12 +448,12 @@ def test_poll_interval_is_configurable(client, clock):
 def test_timeout_error_carries_task_id_and_resumable_handle(client, clock):
     with patch.object(client, "_request", side_effect=[accepted("transcribe", task_id="t-42")] +
                       [job("transcribe", "processing", task_id="t-42")] * 50):
-        with pytest.raises(AsyncJobTimeoutError) as exc_info:
+        with pytest.raises(JobTimeoutError) as exc_info:
             client.transcribe_video(video_url="https://example.com/v", timeout=12)
     exc = exc_info.value
     assert exc.task_id == "t-42"
     assert "t-42" in str(exc)
-    assert isinstance(exc.job, AsyncJob) and exc.job.task_id == "t-42"
+    assert isinstance(exc.job, Job) and exc.job.task_id == "t-42"
     # Sleeps never overshoot the deadline.
     assert sum(clock.sleeps) == pytest.approx(12)
 

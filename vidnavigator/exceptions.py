@@ -88,12 +88,12 @@ class ServerError(VidNavigatorError):
     """Raised on 5xx server errors (excluding overload mapped to SystemOverloadError)."""
 
 
-class AsyncJobTimeoutError(VidNavigatorError):
+class JobTimeoutError(VidNavigatorError):
     """Raised when a blocking call stops waiting for a job that has not finished.
 
     The job keeps running server-side and its result stays readable for 1 hour
     after it finishes. ``task_id`` identifies it; ``job`` is a ready-to-use
-    :class:`~vidnavigator.AsyncJob` handle, so ``exc.job.result()`` resumes waiting.
+    :class:`~vidnavigator.Job` handle, so ``exc.job.result()`` resumes waiting.
     """
 
     def __init__(self, message: str, *, task_id: str, job: Any = None) -> None:

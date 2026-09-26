@@ -423,7 +423,7 @@ The call submits the job, polls it until it finishes, and returns the result, ra
 
 ### Non-blocking: submit now, collect later
 
-`submit_*` methods return an `AsyncJob` handle as soon as the job is accepted:
+`submit_*` methods return a `Job` handle as soon as the job is accepted:
 
 ```python
 job = client.submit_transcribe_video(video_url="https://www.instagram.com/reel/C86ZvEaqRmo/")
@@ -434,8 +434,6 @@ print(job.status())  # "processing"
 
 resp = job.result()  # waits if needed, then returns the same TranscriptResponse as transcribe_video
 ```
-
-`AsyncJob` is a plain synchronous object (the name refers to the API's async jobs, not to Python's `asyncio`).
 
 | Member | Description |
 |---|---|
@@ -469,14 +467,14 @@ Polling is free and is not rate-limited. A job's result stays readable for **1 h
 
 ### Timeouts: never lose the `task_id`
 
-Blocking calls and `result()` wait up to `timeout` seconds (default one hour). When the timeout passes, they raise `AsyncJobTimeoutError`, but the job **keeps running on the server**. The error carries the `task_id` and a ready-to-use handle:
+Blocking calls and `result()` wait up to `timeout` seconds (default one hour). When the timeout passes, they raise `JobTimeoutError`, but the job **keeps running on the server**. The error carries the `task_id` and a ready-to-use handle:
 
 ```python
-from vidnavigator import AsyncJobTimeoutError
+from vidnavigator import JobTimeoutError
 
 try:
     resp = client.transcribe_video(video_url=url, timeout=600)
-except AsyncJobTimeoutError as exc:
+except JobTimeoutError as exc:
     print("Still running:", exc.task_id)
     resp = exc.job.result()  # keep waiting on the same job
 ```
@@ -1036,7 +1034,7 @@ except VidNavigatorError as exc:
 | `GeoRestrictedError` | 451 | Content unavailable in your region |
 | `SystemOverloadError` | 503 | Temporary overload (check `.retry_after_seconds`) |
 | `ServerError` | 5xx | Unexpected server error |
-| `AsyncJobTimeoutError` | -- | A blocking call or `job.result()` hit its `timeout`. The job keeps running; resume with `.job` or `.task_id`. |
+| `JobTimeoutError` | -- | A blocking call or `job.result()` hit its `timeout`. The job keeps running; resume with `.job` or `.task_id`. |
 | `WebhookSignatureError` | -- | A webhook delivery failed signature or timestamp verification |
 | `VidNavigatorError` | -- | Base class for all errors, also raised for network failures |
 
@@ -1089,10 +1087,10 @@ Version 2.0 runs speech-to-text and TikTok operations as background jobs. Most c
 
 | In 1.x | In 2.0 |
 |---|---|
-| `transcribe_video`, `extract_video_data` and `get_tweet_statement` made one long HTTP request | They submit a job and poll it. Same arguments and return types, and no media duration limit. They can raise `AsyncJobTimeoutError` (default wait: one hour). |
+| `transcribe_video`, `extract_video_data` and `get_tweet_statement` made one long HTTP request | They submit a job and poll it. Same arguments and return types, and no media duration limit. They can raise `JobTimeoutError` (default wait: one hour). |
 | `extract_video_data(...).video_info` held the video metadata | `video_info` is `None` for online videos; use `get_transcript(video_url=..., metadata_only=True)` |
 | `extract_video_data(..., include_usage=True).usage.total_tokens` | Use `usage.analysis_tokens.total_tokens` |
-| `submit_tiktok_profile_scrape` / `submit_tiktok_search` returned the submit response | They return an `AsyncJob`. `job.data.task_id` still works; **`job.status` is now a method**, so replace `task.status == "success"` checks. |
+| `submit_tiktok_profile_scrape` / `submit_tiktok_search` returned the submit response | They return a `Job`. `job.data.task_id` still works; **`job.status` is now a method**, so replace `task.status == "success"` checks. |
 | Manual polling loops on `get_tiktok_profile_scrape` | `scrape_tiktok_profile(...)`, or `job.result()` on a submitted job |
 | `task.data.error_message` on failed TikTok tasks | Deprecated; read `task.data.error` (`error`, `message`, `http_status`), or let `job.result()` raise |
 | A 401 raised the generic `VidNavigatorError` | It raises `AuthenticationError` |

@@ -15,7 +15,7 @@ from .exceptions import (
     VidNavigatorError,
     error_from_response,
 )
-from .jobs import DEFAULT_JOB_TIMEOUT, AsyncJob
+from .jobs import DEFAULT_JOB_TIMEOUT, Job
 from . import models
 
 
@@ -133,27 +133,27 @@ class VidNavigatorClient:
             payload = {"status": "error", "message": str(payload)}
         raise error_from_response(response.status_code, payload, reason=response.reason)
 
-    def _job_from_submit(self, job_type: str, model_cls: Any, raw: Any) -> AsyncJob:
+    def _job_from_submit(self, job_type: str, model_cls: Any, raw: Any) -> Job:
         submitted = _parse_model(model_cls, raw)
         task_id = submitted.data.task_id if submitted.data is not None else None
         if not task_id:
             raise VidNavigatorError(f"{job_type} submit response did not include a task_id")
-        return AsyncJob(self, job_type, task_id, submit_response=submitted)
+        return Job(self, job_type, task_id, submit_response=submitted)
 
     # ---------------------------------------------------------------------
     # Background jobs
     # ---------------------------------------------------------------------
 
-    def resume_job(self, job_type: str, task_id: str) -> AsyncJob:
+    def resume_job(self, job_type: str, task_id: str) -> Job:
         """Rebuild the handle of a job submitted earlier from its ``task_id``.
 
         *job_type* is one of ``"transcribe"``, ``"extract_video"``,
         ``"tweet_statement"``, ``"tiktok_profile"`` or ``"tiktok_search"``.
-        Use it after an :class:`~vidnavigator.AsyncJobTimeoutError`, a restart,
+        Use it after an :class:`~vidnavigator.JobTimeoutError`, a restart,
         or a webhook delivery. Results stay readable for 1 hour after the job
         finishes.
         """
-        return AsyncJob(self, job_type, task_id)
+        return Job(self, job_type, task_id)
 
     # ---------------------------------------------------------------------
     # Public API methods
@@ -227,7 +227,7 @@ class VidNavigatorClient:
         transcript_text: bool = False,
         all_videos: bool = False,
         webhook_url: Optional[str] = None,
-    ) -> AsyncJob:
+    ) -> Job:
         """Start a speech-to-text transcription job and return its handle immediately.
 
         Call ``.result()`` on the handle to wait for a
@@ -266,7 +266,7 @@ class VidNavigatorClient:
         When *all_videos* is True (carousel posts), the response includes
         *carousel_info* and *videos* instead of a single *video_info*.
 
-        Raises :class:`~vidnavigator.AsyncJobTimeoutError` (carrying the
+        Raises :class:`~vidnavigator.JobTimeoutError` (carrying the
         ``task_id``) if the job is still running after *timeout* seconds.
         """
         job = self.submit_transcribe_video(
@@ -361,7 +361,7 @@ class VidNavigatorClient:
         what_to_extract: Optional[str] = None,
         transcribe: bool = True,
         webhook_url: Optional[str] = None,
-    ) -> AsyncJob:
+    ) -> Job:
         """Start a structured-data extraction job and return its handle immediately.
 
         Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
@@ -453,7 +453,7 @@ class VidNavigatorClient:
         min_likes: Optional[int] = None,
         max_likes: Optional[int] = None,
         webhook_url: Optional[str] = None,
-    ) -> AsyncJob:
+    ) -> Job:
         """Start a TikTok profile scrape job and return its handle immediately.
 
         Datetime filters must be YYYY-MM-DD strings or ISO format with timezone.
@@ -547,7 +547,7 @@ class VidNavigatorClient:
         min_views: Optional[int] = None,
         max_views: Optional[int] = None,
         webhook_url: Optional[str] = None,
-    ) -> AsyncJob:
+    ) -> Job:
         """Start a TikTok keyword search job and return its handle immediately.
 
         Parameters
@@ -885,7 +885,7 @@ class VidNavigatorClient:
         *,
         tweet_id: str,
         webhook_url: Optional[str] = None,
-    ) -> AsyncJob:
+    ) -> Job:
         """Start a tweet claim analysis job and return its handle immediately.
 
         ``.result()`` on the handle returns a

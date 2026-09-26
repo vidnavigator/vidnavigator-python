@@ -24,8 +24,8 @@ except ImportError:
 import pytest
 
 from vidnavigator import (
-    AsyncJob,
-    AsyncJobTimeoutError,
+    Job,
+    JobTimeoutError,
     AuthenticationError,
     BadRequestError,
     NotFoundError,
@@ -254,7 +254,7 @@ def test_tiktok_search_lifecycle(client):
         published_within="this_month",
         webhook_url="",
     )
-    assert isinstance(task, AsyncJob)
+    assert isinstance(task, Job)
     assert task.task_id
     assert task.data.query == "ai tools"
     assert task.webhook_url is None
@@ -321,7 +321,7 @@ def test_extract_video_job_handle_lifecycle(client):
         transcribe=False,
         webhook_url="",
     )
-    assert isinstance(handle, AsyncJob)
+    assert isinstance(handle, Job)
     assert handle.job_type == "extract_video"
     assert handle.check_status_url.endswith(handle.task_id)
     assert handle.webhook_url is None
@@ -379,7 +379,7 @@ def test_blocking_timeout_keeps_task_id_and_resumes(client):
     )
     try:
         handle.wait(timeout=0)
-    except AsyncJobTimeoutError as exc:
+    except JobTimeoutError as exc:
         assert exc.task_id == handle.task_id
         resumed = exc.job
     else:  # finished before the first poll returned
