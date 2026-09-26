@@ -27,6 +27,8 @@ vidnavigator-python/
     test_models_extract.py     # Extraction model parsing tests
     test_version.py            # Version consistency across the three declarations
     test_integration.py        # Live API integration tests
+    test_platforms.py          # Live, opt-in: every platform, captions + speech-to-text
+    test_webhook_delivery.py   # Live, opt-in: end-to-end signed webhook deliveries
   test.py                 # Convenience CLI runner for pytest
   pyproject.toml          # Package metadata, dependencies, build config
   openapi.json            # API spec (source of truth for SDK updates)
@@ -88,8 +90,12 @@ Some integration tests need extra inputs and are skipped unless these are set:
 |---|---|
 | `VIDNAVIGATOR_TIKTOK_PROFILE_URL` | TikTok profile scrape lifecycle (e.g. `https://www.tiktok.com/@tiktok`) |
 | `VIDNAVIGATOR_TRANSCRIBE_URL` | Async transcription success path (a short non-YouTube video, e.g. a TikTok URL) |
-| `VIDNAVIGATOR_TWEET_ID` | Sync and async tweet statement tests |
-| `VIDNAVIGATOR_BASE_URL` | Run against a local or staging API |
+| `VIDNAVIGATOR_TWEET_ID` | Tweet claim analysis test (e.g. `1585841080431321088`) |
+| `VIDNAVIGATOR_BASE_URL` | Run against a local or staging API (local backend: `http://localhost:5001/v1`) |
+| `VIDNAVIGATOR_PLATFORM_TESTS=1` | `tests/test_platforms.py`: captions and speech-to-text on every supported platform (billed) |
+| `VIDNAVIGATOR_WEBHOOK_SITE_TOKEN` + `VIDNAVIGATOR_WEBHOOK_SECRET` | `tests/test_webhook_delivery.py`: real signed deliveries, read back from a webhook.site inbox that is the account's default webhook |
+
+Keep API keys and the webhook secret in your shell or `.env`, never in the repository.
 
 ### Test fixtures
 

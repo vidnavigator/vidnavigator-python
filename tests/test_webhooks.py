@@ -121,11 +121,16 @@ def test_construct_webhook_event_failed_and_tiktok_events():
     tiktok = {
         "id": "evt_2",
         "type": "tiktok_search.completed",
-        "data": {"task_id": "s1", "task_status": "completed", "stats": {"results_count": 42}},
+        "data": {
+            "task_id": "s1",
+            "task_status": "completed",
+            "result": {"stats": {"results_count": 42}, "download_url_available": True},
+        },
     }
     body = json.dumps(tiktok).encode()
     event = construct_webhook_event(body, _header(body), SECRET, now=NOW)
-    assert event.data.stats == {"results_count": 42}
+    assert event.data.result["stats"] == {"results_count": 42}
+    assert event.data.result["download_url_available"] is True
 
 
 def test_construct_webhook_event_verifies_before_parsing():

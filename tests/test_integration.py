@@ -418,7 +418,8 @@ def test_tweet_statement(client):
     resp = client.get_tweet_statement(tweet_id=TEST_TWEET_ID, timeout=ASYNC_JOB_TIMEOUT_SECONDS)
     assert resp.status == "success"
     assert resp.data.final_statement
-    assert resp.data.statement_query
+    assert resp.data.detailed_analysis
+    assert resp.data.topics
 
 
 # -- File upload + extract lifecycle ----------------------------------------

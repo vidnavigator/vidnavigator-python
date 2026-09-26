@@ -858,9 +858,10 @@ class WebhookEventData(BaseModel):
     task_status: Optional[str] = Field(None, alias="task_status")
     job_type: Optional[str] = Field(None, alias="job_type")
     check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    # For TikTok events this is a summary, not the videos:
+    # ``{"stats": {...}, "download_url_available": bool}``.
     result: Optional[Dict[str, Any]] = None
     result_truncated: Optional[bool] = Field(None, alias="result_truncated")
-    stats: Optional[Dict[str, Any]] = None
     error: Optional[AsyncJobError] = None
 
 
@@ -868,8 +869,10 @@ class WebhookEvent(BaseModel):
     """JSON body POSTed to your ``webhook_url`` when a job reaches a terminal state.
 
     ``type`` is e.g. ``"transcribe.completed"`` or ``"tiktok_search.failed"``.
-    When ``data.result_truncated`` is true (result over 256 KB) or for TikTok
-    events, fetch the result by polling ``data.task_id`` instead.
+    When ``data.result_truncated`` is true (result over 256 KB), fetch the
+    result by polling ``data.task_id`` instead. TikTok events only carry a
+    summary in ``data.result`` (``stats`` and ``download_url_available``); read
+    the videos with the job handle.
     """
 
     id: Optional[str] = None
