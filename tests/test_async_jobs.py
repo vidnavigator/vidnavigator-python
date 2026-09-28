@@ -336,9 +336,19 @@ def test_result_carousel(client, no_sleep):
 
 
 def test_result_extract(client, no_sleep):
-    with patch.object(client, "_request", return_value=job("extract_video", "completed", result={"mood": "x"})):
+    raw = job("extract_video", "completed", result={"mood": "x"})
+    raw["data"]["video_info"] = {"title": "Extracted video", "url": "https://example.com/v"}
+    with patch.object(client, "_request", return_value=raw):
         resp = client.resume_job("extract_video", "task_1").result()
     assert isinstance(resp, ExtractionApiResponse)
+    assert resp.data == {"mood": "x"}
+    assert resp.video_info.title == "Extracted video"
+
+
+def test_result_extract_without_video_info(client, no_sleep):
+    # Jobs that finished before the API started returning it.
+    with patch.object(client, "_request", return_value=job("extract_video", "completed", result={"mood": "x"})):
+        resp = client.resume_job("extract_video", "task_1").result()
     assert resp.data == {"mood": "x"}
     assert resp.video_info is None
 

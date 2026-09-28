@@ -53,7 +53,10 @@ def _finalize(job_type: str, resp: Any) -> Any:
         return models.TranscriptResponse(status=resp.status, data=result, usage=resp.usage)
     if job_type == "extract_video":
         return models.ExtractionApiResponse(
-            status=resp.status, data=_completed_result(resp), usage=resp.usage
+            status=resp.status,
+            data=_completed_result(resp),
+            video_info=resp.data.video_info,
+            usage=resp.usage,
         )
     if job_type == "tweet_statement":
         return models.TweetStatementResponse(

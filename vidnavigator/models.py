@@ -820,10 +820,12 @@ class ExtractVideoJob(_AsyncJobBase):
     """Body of ``GET /extract/video/{task_id}``.
 
     Once completed, ``result`` holds the extracted data, matching the ``data``
-    field of the synchronous :meth:`~vidnavigator.VidNavigatorClient.extract_video_data`.
+    field of the synchronous :meth:`~vidnavigator.VidNavigatorClient.extract_video_data`,
+    and ``video_info`` the metadata of the video it was extracted from.
     """
 
     result: Optional[Dict[str, Any]] = None
+    video_info: Optional[VideoInfo] = Field(None, alias="video_info")
 
 
 class TweetStatementJob(_AsyncJobBase):
@@ -862,6 +864,8 @@ class WebhookEventData(BaseModel):
     # ``{"stats": {...}, "download_url_available": bool}``.
     result: Optional[Dict[str, Any]] = None
     result_truncated: Optional[bool] = Field(None, alias="result_truncated")
+    # ``extract_video.completed`` only; sent even when ``result_truncated`` is true.
+    video_info: Optional[Dict[str, Any]] = Field(None, alias="video_info")
     error: Optional[AsyncJobError] = None
 
 

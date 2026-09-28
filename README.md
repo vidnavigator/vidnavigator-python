@@ -297,7 +297,7 @@ print(resp.data)
 
 `extract_video_data` runs as a [background job](#background-jobs). With `transcribe=True` (the default), a video without captions (Instagram, TikTok, Facebook, ...) is transcribed first, however long it is. YouTube videos rely on their captions. Set `transcribe=False` to never run speech-to-text.
 
-The extracted fields are in `resp.data`. `resp.video_info` is not populated for online videos; call `get_transcript(video_url=..., metadata_only=True)` if you also need the metadata.
+The extracted fields are in `resp.data`, and the video's metadata in `resp.video_info`.
 
 ### Schema format
 
@@ -1088,7 +1088,6 @@ Version 2.0 runs speech-to-text and TikTok operations as background jobs. Most c
 | In 1.x | In 2.0 |
 |---|---|
 | `transcribe_video`, `extract_video_data` and `get_tweet_statement` made one long HTTP request | They submit a job and poll it. Same arguments and return types, and no media duration limit. They can raise `JobTimeoutError` (default wait: one hour). |
-| `extract_video_data(...).video_info` held the video metadata | `video_info` is `None` for online videos; use `get_transcript(video_url=..., metadata_only=True)` |
 | `extract_video_data(..., include_usage=True).usage.total_tokens` | Use `usage.analysis_tokens.total_tokens` |
 | `submit_tiktok_profile_scrape` / `submit_tiktok_search` returned the submit response | They return a `Job`. `job.data.task_id` still works; **`job.status` is now a method**, so replace `task.status == "success"` checks. |
 | Manual polling loops on `get_tiktok_profile_scrape` | `scrape_tiktok_profile(...)`, or `job.result()` on a submitted job |

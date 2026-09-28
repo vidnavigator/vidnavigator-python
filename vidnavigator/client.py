@@ -20,7 +20,7 @@ from . import models
 
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.0.0"
+USER_AGENT = "vidnavigator-python/2.1.0"
 
 
 def _parse_model(model_cls: Any, raw: Any) -> Any:
@@ -398,8 +398,8 @@ class VidNavigatorClient:
         """Extract structured data from an online video transcript and wait for the result.
 
         Runs as a background job (``POST /extract/video/async`` then polling).
-        The extracted fields are in ``.data``. ``.video_info`` is not populated,
-        because job results carry only the extracted data.
+        The extracted fields are in ``.data`` and the video's metadata in
+        ``.video_info``.
         """
         job = self.submit_extract_video_data(
             video_url=video_url,
