@@ -68,7 +68,7 @@ For the [asyncio client](#async-client), install the `async` extra, which adds [
 pip install "vidnavigator[async]"
 ```
 
-Requires Python 3.7+.
+Requires Python 3.8+.
 
 ---
 
@@ -1222,7 +1222,7 @@ New in 2.0: `submit_transcribe_video`, `submit_extract_video_data`, `submit_twee
 
 ## Requirements
 
-- Python 3.7+
+- Python 3.8+
 - [`requests`](https://pypi.org/project/requests/) >= 2.31
 - [`pydantic`](https://pypi.org/project/pydantic/) >= 1.10 (v1 and v2 both supported)
 - [`httpx`](https://pypi.org/project/httpx/) >= 0.23, for `AsyncVidNavigatorClient` only (`pip install "vidnavigator[async]"`)
