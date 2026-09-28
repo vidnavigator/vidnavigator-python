@@ -310,6 +310,7 @@ def test_extract_video_data_blocking_runs_as_job(client):
     )
     assert resp.status == "success"
     assert "mood" in resp.data
+    assert resp.video_info is not None and resp.video_info.title
     if resp.usage:
         assert resp.usage.charge_for("analysis_request") is not None
 

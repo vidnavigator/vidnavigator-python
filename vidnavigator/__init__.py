@@ -3,7 +3,8 @@
 __version__ = "2.1.0"
 
 from .client import VidNavigatorClient
-from .jobs import Job
+from .async_client import AsyncVidNavigatorClient
+from .jobs import AsyncJob, Job
 from .exceptions import (
     VidNavigatorError,
     AuthenticationError,
@@ -24,7 +25,9 @@ from .webhooks import construct_webhook_event, verify_webhook_signature
 
 __all__ = [
     "VidNavigatorClient",
+    "AsyncVidNavigatorClient",
     "Job",
+    "AsyncJob",
     "VidNavigatorError",
     "AuthenticationError",
     "AccessDeniedError",

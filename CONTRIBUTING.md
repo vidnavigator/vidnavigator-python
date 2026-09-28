@@ -10,16 +10,19 @@ Internal reference for developing, testing, and publishing the VidNavigator Pyth
 vidnavigator-python/
   vidnavigator/           # SDK source code (published to PyPI)
     __init__.py           #   Package exports and __version__
-    client.py             #   VidNavigatorClient with all API methods
+    _core.py              #   Request building shared by both clients (one place per endpoint)
+    client.py             #   VidNavigatorClient (sync, requests)
+    async_client.py       #   AsyncVidNavigatorClient (asyncio, httpx; the `async` extra)
     models.py             #   Pydantic response models
     exceptions.py         #   Exception hierarchy + status/error-code mapping
-    jobs.py               #   Job handle: background-job polling, timeouts, results
+    jobs.py               #   Job / AsyncJob handles: background-job polling, timeouts, results
     webhooks.py           #   Webhook signature verification and event parsing
   tests/                  # Test suite (not published)
     fixtures/             #   Test media files (git-ignored)
     test_client_endpoints.py   # Mocked unit tests for every client method
     conftest.py / helpers.py   # Shared fixtures (instant polling) and mock payload builders
     test_async_jobs.py         # Job handles, polling schedule, timeouts, blocking calls
+    test_async_client.py       # AsyncVidNavigatorClient + AsyncJob (httpx MockTransport), sync/async parity
     test_tiktok_webhooks.py    # TikTok jobs, webhook_url pass-through, new filters
     test_webhooks.py           # Webhook signature verification tests
     test_error_mapping.py      # HTTP status -> exception mapping tests
@@ -27,6 +30,7 @@ vidnavigator-python/
     test_models_extract.py     # Extraction model parsing tests
     test_version.py            # Version consistency across the three declarations
     test_integration.py        # Live API integration tests
+    test_async_integration.py  # Live API integration tests for the async client
     test_platforms.py          # Live, opt-in: every platform, captions + speech-to-text
     test_webhook_delivery.py   # Live, opt-in: end-to-end signed webhook deliveries
   test.py                 # Convenience CLI runner for pytest
@@ -195,7 +199,7 @@ password = pypi-YOUR_TOKEN_HERE
 
 1. Update `openapi.json` with the latest spec.
 2. Update `vidnavigator/models.py` with new/changed schemas.
-3. Update `vidnavigator/client.py` with new/changed methods.
+3. Add or change the request builder in `vidnavigator/_core.py`, then expose it in **both** `vidnavigator/client.py` and `vidnavigator/async_client.py` (`tests/test_async_client.py` fails if their methods or signatures drift apart).
 4. Update `vidnavigator/exceptions.py` if new error codes were introduced.
 5. Add unit tests in `tests/` for the new functionality.
 6. Run `python test.py --all` to verify everything works.

@@ -23,13 +23,14 @@ def main():
     ]
 
     if "--live" in args:
-        cmd = [sys.executable, "-m", "pytest", "tests/test_integration.py", "tests/test_platforms.py", "tests/test_webhook_delivery.py", "-v"]
+        cmd = [sys.executable, "-m", "pytest", "tests/test_integration.py", "tests/test_async_integration.py", "tests/test_platforms.py", "tests/test_webhook_delivery.py", "-v"]
     elif "--all" in args:
         cmd = [sys.executable, "-m", "pytest", "tests/", "-v"]
     else:
         cmd = [
             sys.executable, "-m", "pytest", "tests/", "-v",
             "--ignore=tests/test_integration.py",
+            "--ignore=tests/test_async_integration.py",
             "--ignore=tests/test_platforms.py",
             "--ignore=tests/test_webhook_delivery.py",
         ]

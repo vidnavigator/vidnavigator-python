@@ -2,19 +2,20 @@
 
 Every speech-to-text and TikTok operation runs as a background job: submitting
 returns a ``task_id`` immediately and the result is read by polling. A
-:class:`Job` wraps one such job.
+:class:`Job` wraps one such job for :class:`~vidnavigator.VidNavigatorClient`;
+an :class:`AsyncJob` does the same, with awaitable methods, for
+:class:`~vidnavigator.AsyncVidNavigatorClient`.
 """
 
 from __future__ import annotations
 
+import asyncio
 import time
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import Any, Dict, Optional
 
 from .exceptions import JobTimeoutError, VidNavigatorError
+from ._core import Request, parse_model
 from . import models
-
-if TYPE_CHECKING:  # pragma: no cover
-    from .client import VidNavigatorClient
 
 # Polling is free and not rate-limited: poll quickly at first so short clips
 # return fast, then settle into a steady interval.
@@ -66,18 +67,38 @@ def _finalize(job_type: str, resp: Any) -> Any:
     return resp
 
 
-class Job:
-    """A background job on the VidNavigator API.
+class _PollClock:
+    """The shared polling schedule: fast at first, then steady, never past the deadline."""
 
-    Obtain one from a ``submit_*`` method, or rebuild one from a saved id with
-    :meth:`VidNavigatorClient.resume_job`. Keep :attr:`task_id`: the job keeps
-    running server-side even if your process stops waiting, and its result
-    stays readable for 1 hour after it finishes.
-    """
+    def __init__(self, timeout: Optional[float], poll_interval: float, fast_start: bool) -> None:
+        self.timeout = timeout
+        self.poll_interval = poll_interval
+        self.fast_start = fast_start
+        self.start = time.monotonic()
+        self.deadline = None if timeout is None else self.start + timeout
 
+    def next_delay(self, job: "_JobBase", status: Optional[str]) -> float:
+        """Seconds to sleep before the next poll; raises once the deadline has passed."""
+        now = time.monotonic()
+        use_fast = self.fast_start and now - self.start < FAST_POLL_WINDOW
+        delay = min(self.poll_interval, FAST_POLL_INTERVAL) if use_fast else self.poll_interval
+        if self.deadline is not None:
+            remaining = self.deadline - now
+            if remaining <= 0:
+                raise JobTimeoutError(
+                    f"{job.job_type} job {job.task_id} still {status!r} after "
+                    f"{self.timeout}s; it keeps running server-side, resume it with this task_id",
+                    task_id=job.task_id,
+                    job=job,
+                )
+            delay = min(delay, remaining)
+        return delay
+
+
+class _JobBase:
     def __init__(
         self,
-        client: "VidNavigatorClient",
+        client: Any,
         job_type: str,
         task_id: str,
         *,
@@ -96,7 +117,7 @@ class Job:
         self.last_response: Any = None
 
     def __repr__(self) -> str:
-        return f"Job(job_type={self.job_type!r}, task_id={self.task_id!r})"
+        return f"{type(self).__name__}(job_type={self.job_type!r}, task_id={self.task_id!r})"
 
     # -- Submit-time metadata -------------------------------------------------
     @property
@@ -113,22 +134,39 @@ class Job:
         """The webhook this job reports to, as echoed by the API (``None`` if none applies)."""
         return getattr(self.data, "webhook_url", None)
 
-    # -- Polling --------------------------------------------------------------
+    def _poll_request(self, include_usage: bool, params: Dict[str, Any]) -> Request:
+        path, model_cls = JOB_ROUTES[self.job_type]
+        query: Dict[str, Any] = {k: v for k, v in params.items() if v is not None}
+        if include_usage:
+            query["include_usage"] = "true"
+        return Request(
+            "GET",
+            f"{path}/{self.task_id}",
+            {"params": query or None},
+            lambda raw: parse_model(model_cls, raw),
+        )
+
+    def _store(self, resp: Any) -> Any:
+        self.last_response = resp
+        return resp
+
+
+class Job(_JobBase):
+    """A background job on the VidNavigator API.
+
+    Obtain one from a ``submit_*`` method, or rebuild one from a saved id with
+    :meth:`VidNavigatorClient.resume_job`. Keep :attr:`task_id`: the job keeps
+    running server-side even if your process stops waiting, and its result
+    stays readable for 1 hour after it finishes.
+    """
+
     def refresh(self, *, include_usage: bool = False, **params: Any) -> Any:
         """Fetch the job once and return the typed poll response.
 
         Extra keyword arguments are sent as query parameters (TikTok jobs accept
         ``limit`` and ``cursor``).
         """
-        path, model_cls = JOB_ROUTES[self.job_type]
-        query: Dict[str, Any] = {k: v for k, v in params.items() if v is not None}
-        if include_usage:
-            query["include_usage"] = "true"
-        raw = self._client._request("GET", f"{path}/{self.task_id}", params=query or None)
-        from .client import _parse_model
-
-        self.last_response = _parse_model(model_cls, raw)
-        return self.last_response
+        return self._store(self._client._call(self._poll_request(include_usage, params)))
 
     def status(self) -> str:
         """Fetch the job once and return its ``task_status``."""
@@ -157,25 +195,10 @@ class Job:
         :class:`~vidnavigator.JobTimeoutError` carrying this job's
         ``task_id``; pass ``timeout=None`` to wait indefinitely.
         """
-        start = time.monotonic()
-        deadline = None if timeout is None else start + timeout
+        clock = _PollClock(timeout, poll_interval, fast_start)
         resp = self.refresh(include_usage=include_usage, **params)
         while resp.data.task_status not in TERMINAL_STATUSES:
-            now = time.monotonic()
-            use_fast = fast_start and now - start < FAST_POLL_WINDOW
-            delay = min(poll_interval, FAST_POLL_INTERVAL) if use_fast else poll_interval
-            if deadline is not None:
-                remaining = deadline - now
-                if remaining <= 0:
-                    raise JobTimeoutError(
-                        f"{self.job_type} job {self.task_id} still "
-                        f"{resp.data.task_status!r} after {timeout}s; it keeps running "
-                        f"server-side, resume it with this task_id",
-                        task_id=self.task_id,
-                        job=self,
-                    )
-                delay = min(delay, remaining)
-            time.sleep(delay)
+            time.sleep(clock.next_delay(self, resp.data.task_status))
             resp = self.refresh(include_usage=include_usage, **params)
         if raise_on_failure:
             resp.data.raise_for_error()
@@ -196,6 +219,69 @@ class Job:
         :class:`~vidnavigator.models.TranscriptResponse` for a transcription.
         """
         resp = self.wait(
+            timeout=timeout,
+            include_usage=include_usage,
+            poll_interval=poll_interval,
+            fast_start=fast_start,
+            **params,
+        )
+        return _finalize(self.job_type, resp)
+
+
+class AsyncJob(_JobBase):
+    """A background job, with awaitable methods, for :class:`~vidnavigator.AsyncVidNavigatorClient`.
+
+    Same members as :class:`Job`; ``refresh``, ``status``, ``done``, ``wait``
+    and ``result`` are coroutines, and waiting uses ``asyncio.sleep`` so the
+    event loop keeps running.
+    """
+
+    async def refresh(self, *, include_usage: bool = False, **params: Any) -> Any:
+        """Fetch the job once and return the typed poll response."""
+        return self._store(await self._client._call(self._poll_request(include_usage, params)))
+
+    async def status(self) -> str:
+        """Fetch the job once and return its ``task_status``."""
+        return (await self.refresh()).data.task_status
+
+    async def done(self) -> bool:
+        """Fetch the job once and report whether it reached ``completed`` or ``failed``."""
+        return (await self.status()) in TERMINAL_STATUSES
+
+    async def wait(
+        self,
+        *,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+        include_usage: bool = False,
+        poll_interval: float = POLL_INTERVAL,
+        fast_start: bool = True,
+        raise_on_failure: bool = True,
+        **params: Any,
+    ) -> Any:
+        """Poll until the job finishes and return the final typed poll response.
+
+        See :meth:`Job.wait`.
+        """
+        clock = _PollClock(timeout, poll_interval, fast_start)
+        resp = await self.refresh(include_usage=include_usage, **params)
+        while resp.data.task_status not in TERMINAL_STATUSES:
+            await asyncio.sleep(clock.next_delay(self, resp.data.task_status))
+            resp = await self.refresh(include_usage=include_usage, **params)
+        if raise_on_failure:
+            resp.data.raise_for_error()
+        return resp
+
+    async def result(
+        self,
+        *,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+        include_usage: bool = False,
+        poll_interval: float = POLL_INTERVAL,
+        fast_start: bool = True,
+        **params: Any,
+    ) -> Any:
+        """Wait for the job and return its result, raising if it failed. See :meth:`Job.result`."""
+        resp = await self.wait(
             timeout=timeout,
             include_usage=include_usage,
             poll_interval=poll_interval,

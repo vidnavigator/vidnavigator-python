@@ -12,7 +12,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 
 - [Installation](#installation) · [Authentication](#authentication) · [Quick start](#quick-start) · [Which method should I use?](#which-method-should-i-use)
 - **Online videos:** [Transcripts](#transcripts) · [AI analysis](#ai-analysis) · [Structured extraction](#structured-extraction) · [Tweet claim analysis](#tweet-claim-analysis)
-- **Long-running work:** [Background jobs](#background-jobs) · [Recipes](#recipes) · [Webhooks](#webhooks)
+- **Long-running work:** [Background jobs](#background-jobs) · [Recipes](#recipes) · [Async client](#async-client) · [Webhooks](#webhooks)
 - **TikTok:** [Profile scraping](#tiktok-profile-scraping) · [Keyword search](#tiktok-keyword-search)
 - **Your own files:** [Semantic search](#semantic-search) · [File uploads](#file-uploads) · [Namespaces](#namespaces)
 - **Reference:** [Per-call usage](#per-call-usage) · [Usage & billing](#usage--billing) · [Error handling](#error-handling) · [Configuration](#configuration) · [Upgrading from 1.x](#upgrading-from-1x)
@@ -60,6 +60,12 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 
 ```bash
 pip install vidnavigator
+```
+
+For the [asyncio client](#async-client), install the `async` extra, which adds [`httpx`](https://pypi.org/project/httpx/):
+
+```bash
+pip install "vidnavigator[async]"
 ```
 
 Requires Python 3.7+.
@@ -122,6 +128,7 @@ print(resp.data)  # {"mood": "upbeat"}
 | Find YouTube videos about a topic | `search_youtube` | immediately |
 | Work with your own audio/video files | `upload_file`, then `get_file`, `analyze_file`, `extract_file_data`, `search_files` | immediately |
 | Process **many** videos at once | the `submit_*` version of a job method | a job handle, right away |
+| Call the API from asyncio code (FastAPI, aiohttp, bots, agents) | [`AsyncVidNavigatorClient`](#async-client) | the same results, awaited |
 
 "When the job finishes" methods run as [background jobs](#background-jobs). They block until the result is ready, however long the media is. Each one also has a `submit_*` version that returns immediately.
 
@@ -646,6 +653,121 @@ for job in jobs:
 
 Pass a `webhook_url` and let VidNavigator call your server when each job finishes. See [Webhooks](#webhooks).
 
+### Run many jobs from asyncio code
+
+With the [async client](#async-client), `asyncio.gather` submits and waits for all jobs concurrently in a single thread:
+
+```python
+results = await asyncio.gather(*(client.transcribe_video(video_url=url) for url in urls))
+```
+
+---
+
+## Async Client
+
+`AsyncVidNavigatorClient` has the same methods, arguments and return types as `VidNavigatorClient`, as coroutines. Use it from asyncio code such as FastAPI, aiohttp, Discord bots or agent frameworks: while a job is running, waiting uses `asyncio.sleep`, so the event loop keeps serving other work. It needs the `async` extra (`pip install "vidnavigator[async]"`).
+
+```python
+import asyncio
+from vidnavigator import AsyncVidNavigatorClient
+
+async def main():
+    async with AsyncVidNavigatorClient() as client:  # reads VIDNAVIGATOR_API_KEY
+        resp = await client.transcribe_video(video_url="https://www.instagram.com/reel/C86ZvEaqRmo/")
+        print(resp.data.transcript)
+
+asyncio.run(main())
+```
+
+### Many jobs at once
+
+`asyncio.gather` runs every call concurrently. Each job is submitted immediately and polled in the background of the same event loop:
+
+```python
+async with AsyncVidNavigatorClient() as client:
+    results = await asyncio.gather(
+        *(client.transcribe_video(video_url=url, transcript_text=True) for url in urls),
+        return_exceptions=True,  # one failed job doesn't cancel the others
+    )
+
+for url, resp in zip(urls, results):
+    if isinstance(resp, Exception):
+        print(url, "failed:", resp)
+    else:
+        print(url, resp.data.transcript[:80])
+```
+
+To cap how many jobs run at once (see [the running-job limit](#stay-under-the-running-job-limit)), wrap each call in an `asyncio.Semaphore`:
+
+```python
+limit = asyncio.Semaphore(5)
+
+async def transcribe(url):
+    async with limit:
+        return await client.transcribe_video(video_url=url)
+
+results = await asyncio.gather(*(transcribe(url) for url in urls))
+```
+
+### Job handles
+
+`submit_*` methods return an `AsyncJob`: the same members as [`Job`](#non-blocking-submit-now-collect-later), with `status()`, `done()`, `refresh()`, `wait()` and `result()` as coroutines.
+
+```python
+job = await client.submit_extract_video_data(video_url=url, schema=schema)
+print(job.task_id)
+
+if not await job.done():
+    ...  # do other work
+resp = await job.result()
+```
+
+Timeouts work as in the sync client: `JobTimeoutError` carries the `task_id` and an `AsyncJob` handle, so `await exc.job.result()` resumes waiting, and `client.resume_job(job_type, task_id)` rebuilds a handle later.
+
+### In a FastAPI app
+
+Create one client for the app's lifetime and share it across requests:
+
+```python
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+from vidnavigator import AsyncVidNavigatorClient
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.vidnavigator = AsyncVidNavigatorClient()
+    yield
+    await app.state.vidnavigator.aclose()
+
+app = FastAPI(lifespan=lifespan)
+
+@app.post("/jobs")
+async def start_transcription(video_url: str):
+    job = await app.state.vidnavigator.submit_transcribe_video(video_url=video_url)
+    return {"task_id": job.task_id}
+
+@app.get("/jobs/{task_id}")
+async def job_status(task_id: str):
+    job = app.state.vidnavigator.resume_job("transcribe", task_id)
+    resp = await job.refresh()
+    return {"status": resp.data.task_status}
+```
+
+### Configuration
+
+```python
+import httpx
+
+client = AsyncVidNavigatorClient(
+    api_key="YOUR_API_KEY",   # or set VIDNAVIGATOR_API_KEY
+    base_url="https://...",   # override for staging / self-hosted
+    timeout=60,               # per HTTP request, in seconds (default: 30)
+    http_client=httpx.AsyncClient(limits=httpx.Limits(max_connections=20)),  # optional; you close it yourself
+)
+```
+
+Close the client with `await client.aclose()`, or use `async with`. A client you pass as `http_client` is not closed for you. The [webhook helpers](#webhooks) are plain functions and work unchanged in async code. The deprecated sync aliases `get_youtube_transcript` and `search_videos` are not available on the async client.
+
 ---
 
 ## Webhooks
@@ -1077,7 +1199,7 @@ with VidNavigatorClient() as client:
     print(resp.data.transcript)
 ```
 
-One client can be reused for any number of calls. If you use threads, create one client per thread.
+One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
 
@@ -1103,6 +1225,7 @@ New in 2.0: `submit_transcribe_video`, `submit_extract_video_data`, `submit_twee
 - Python 3.7+
 - [`requests`](https://pypi.org/project/requests/) >= 2.31
 - [`pydantic`](https://pypi.org/project/pydantic/) >= 1.10 (v1 and v2 both supported)
+- [`httpx`](https://pypi.org/project/httpx/) >= 0.23, for `AsyncVidNavigatorClient` only (`pip install "vidnavigator[async]"`)
 
 ---
 
