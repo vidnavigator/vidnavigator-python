@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.1.0"
+USER_AGENT = "vidnavigator-python/2.2.0"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -325,6 +325,7 @@ def submit_tiktok_search(
     max_likes: Optional[int] = None,
     min_views: Optional[int] = None,
     max_views: Optional[int] = None,
+    country: Optional[str] = None,
     webhook_url: Optional[str] = None,
 ) -> Request:
     payload = _with_optional(
@@ -339,9 +340,30 @@ def submit_tiktok_search(
         max_likes=max_likes,
         min_views=min_views,
         max_views=max_views,
+        country=country,
         webhook_url=webhook_url,
     )
     return _submit("tiktok_search", _json("POST", "/tiktok/search", payload, models.TikTokSearchSubmitResponse))
+
+
+def submit_tiktok_live_search(
+    *,
+    query: str,
+    max_results: Optional[int] = None,
+    country: Optional[str] = None,
+    include_stream_urls: Optional[bool] = None,
+    webhook_url: Optional[str] = None,
+) -> Request:
+    payload = _with_optional(
+        {"query": query},
+        max_results=max_results,
+        country=country,
+        include_stream_urls=include_stream_urls,
+        webhook_url=webhook_url,
+    )
+    return _submit("tiktok_live_search", _json(
+        "POST", "/tiktok/live/search", payload, models.TikTokLiveSearchSubmitResponse,
+    ))
 
 
 def _tiktok_page(path: str, model_cls: Any, cursor: Optional[str], limit: int, include_usage: bool) -> Request:
@@ -361,6 +383,12 @@ def get_tiktok_profile_scrape(task_id: str, *, cursor: Optional[str] = None, lim
 def get_tiktok_search(task_id: str, *, cursor: Optional[str] = None, limit: int = 50,
                       include_usage: bool = False) -> Request:
     return _tiktok_page(f"/tiktok/search/{task_id}", models.TikTokSearchResponse, cursor, limit, include_usage)
+
+
+def get_tiktok_live_search(task_id: str, *, cursor: Optional[str] = None, limit: int = 50,
+                           include_usage: bool = False) -> Request:
+    return _tiktok_page(f"/tiktok/live/search/{task_id}", models.TikTokLiveSearchResponse, cursor, limit,
+                        include_usage)
 
 
 # ---------------------------------------------------------------------------

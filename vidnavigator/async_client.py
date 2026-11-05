@@ -373,6 +373,7 @@ class AsyncVidNavigatorClient:
         max_likes: Optional[int] = None,
         min_views: Optional[int] = None,
         max_views: Optional[int] = None,
+        country: Optional[str] = None,
         webhook_url: Optional[str] = None,
     ) -> AsyncJob:
         """Start a TikTok keyword search job and return its handle immediately."""
@@ -388,6 +389,7 @@ class AsyncVidNavigatorClient:
             max_likes=max_likes,
             min_views=min_views,
             max_views=max_views,
+            country=country,
             webhook_url=webhook_url,
         ))
 
@@ -405,6 +407,7 @@ class AsyncVidNavigatorClient:
         max_likes: Optional[int] = None,
         min_views: Optional[int] = None,
         max_views: Optional[int] = None,
+        country: Optional[str] = None,
         webhook_url: Optional[str] = None,
         limit: int = 50,
         include_usage: bool = False,
@@ -423,6 +426,7 @@ class AsyncVidNavigatorClient:
             max_likes=max_likes,
             min_views=min_views,
             max_views=max_views,
+            country=country,
             webhook_url=webhook_url,
         )
         return await job.result(timeout=timeout, include_usage=include_usage, limit=limit)
@@ -437,6 +441,59 @@ class AsyncVidNavigatorClient:
     ) -> models.TikTokSearchResponse:
         """Fetch a TikTok keyword search task once and retrieve a page of results."""
         return await self._call(_core.get_tiktok_search(
+            task_id, cursor=cursor, limit=limit, include_usage=include_usage,
+        ))
+
+    async def submit_tiktok_live_search(
+        self,
+        *,
+        query: str,
+        max_results: Optional[int] = None,
+        country: Optional[str] = None,
+        include_stream_urls: Optional[bool] = None,
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start a search of TikTok LIVE rooms broadcasting now, and return its handle immediately."""
+        return await self._submit(_core.submit_tiktok_live_search(
+            query=query,
+            max_results=max_results,
+            country=country,
+            include_stream_urls=include_stream_urls,
+            webhook_url=webhook_url,
+        ))
+
+    async def search_tiktok_live(
+        self,
+        *,
+        query: str,
+        max_results: Optional[int] = None,
+        country: Optional[str] = None,
+        include_stream_urls: Optional[bool] = None,
+        webhook_url: Optional[str] = None,
+        limit: int = 50,
+        include_usage: bool = False,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+    ) -> models.TikTokLiveSearchResponse:
+        """Search TikTok LIVE rooms and wait for the first page of *limit* rooms."""
+        job = await self.submit_tiktok_live_search(
+            query=query,
+            max_results=max_results,
+            country=country,
+            include_stream_urls=include_stream_urls,
+            webhook_url=webhook_url,
+        )
+        return await job.result(timeout=timeout, include_usage=include_usage, limit=limit)
+
+    async def get_tiktok_live_search(
+        self,
+        task_id: str,
+        *,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+        include_usage: bool = False,
+    ) -> models.TikTokLiveSearchResponse:
+        """Fetch a TikTok LIVE search task once and retrieve a page of rooms."""
+        return await self._call(_core.get_tiktok_live_search(
             task_id, cursor=cursor, limit=limit, include_usage=include_usage,
         ))
 

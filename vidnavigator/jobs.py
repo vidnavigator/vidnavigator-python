@@ -33,6 +33,7 @@ JOB_ROUTES = {
     "tweet_statement": ("/tweet/statement", models.TweetStatementJobResponse),
     "tiktok_profile": ("/tiktok/profile", models.TikTokProfileResponse),
     "tiktok_search": ("/tiktok/search", models.TikTokSearchResponse),
+    "tiktok_live_search": ("/tiktok/live/search", models.TikTokLiveSearchResponse),
 }
 
 

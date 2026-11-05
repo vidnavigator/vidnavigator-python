@@ -13,7 +13,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 - [Installation](#installation) · [Authentication](#authentication) · [Quick start](#quick-start) · [Which method should I use?](#which-method-should-i-use)
 - **Online videos:** [Transcripts](#transcripts) · [AI analysis](#ai-analysis) · [Structured extraction](#structured-extraction) · [Tweet claim analysis](#tweet-claim-analysis)
 - **Long-running work:** [Background jobs](#background-jobs) · [Recipes](#recipes) · [Async client](#async-client) · [Webhooks](#webhooks)
-- **TikTok:** [Profile scraping](#tiktok-profile-scraping) · [Keyword search](#tiktok-keyword-search)
+- **TikTok:** [Profile scraping](#tiktok-profile-scraping) · [Keyword search](#tiktok-keyword-search) · [LIVE search](#tiktok-live-search)
 - **Your own files:** [Semantic search](#semantic-search) · [File uploads](#file-uploads) · [Namespaces](#namespaces)
 - **Reference:** [Per-call usage](#per-call-usage) · [Usage & billing](#usage--billing) · [Error handling](#error-handling) · [Configuration](#configuration) · [Upgrading from 1.x](#upgrading-from-1x)
 
@@ -29,7 +29,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Semantic search across content | Yes (YouTube) | Yes |
 | File upload, storage, and management | -- | Yes |
 | Namespace organization and scoped search | -- | Yes |
-| TikTok profile scraping and keyword search | Yes | -- |
+| TikTok profile scraping, keyword search and LIVE search | Yes | -- |
 | Tweet claim analysis | Yes | -- |
 | Background jobs for long media, with optional signed webhooks | Yes | -- |
 
@@ -46,6 +46,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Facebook | Yes | Yes | - |
 | Dailymotion | Yes | Yes | - |
 | Loom | Yes | Yes | - |
+| Snapchat | Yes, when Snapchat has a transcript | Yes | Yes (highlights: `img_index`, `all_videos`) |
 | Uploaded files | Yes | Yes | - |
 
 > **Transcript** = fast extraction of the platform's own captions, via `get_transcript`. **Transcribe** = speech-to-text by AI models, via `transcribe_video`. Use it when captions are unavailable.
@@ -125,6 +126,7 @@ print(resp.data)  # {"mood": "upbeat"}
 | Analyze the claim made in a tweet | `get_tweet_statement` | when the job finishes |
 | List a TikTok profile's videos | `scrape_tiktok_profile` | when the job finishes |
 | Search TikTok by keyword | `search_tiktok` | when the job finishes |
+| Find TikTok LIVE rooms broadcasting now, with their stream URLs | `search_tiktok_live` | when the job finishes |
 | Find YouTube videos about a topic | `search_youtube` | immediately |
 | Work with your own audio/video files | `upload_file`, then `get_file`, `analyze_file`, `extract_file_data`, `search_files` | immediately |
 | Process **many** videos at once | the `submit_*` version of a job method | a job handle, right away |
@@ -138,7 +140,7 @@ print(resp.data)  # {"mood": "upbeat"}
 
 ### Captions from any supported platform
 
-A single `get_transcript` method handles every supported platform (YouTube, Vimeo, X/Twitter, TikTok, Facebook, Dailymotion, Loom, etc.). The API detects the platform from the URL. **Note:** Instagram has no captions, so use `transcribe_video` instead.
+A single `get_transcript` method handles every supported platform (YouTube, Vimeo, X/Twitter, TikTok, Facebook, Dailymotion, Loom, Snapchat, etc.). The API detects the platform from the URL. **Note:** Instagram has no captions, so use `transcribe_video` instead.
 
 ```python
 resp = client.get_transcript(
@@ -416,6 +418,7 @@ Each job operation comes in two shapes:
 | Tweet claim analysis | `get_tweet_statement(...)` | `submit_tweet_statement(...)` |
 | TikTok profile scrape | `scrape_tiktok_profile(...)` | `submit_tiktok_profile_scrape(...)` |
 | TikTok keyword search | `search_tiktok(...)` | `submit_tiktok_search(...)` |
+| TikTok LIVE search | `search_tiktok_live(...)` | `submit_tiktok_live_search(...)` |
 
 Both shapes take the same parameters, except that `include_usage`, `timeout` and (for TikTok) `limit` are passed to `result()` on a handle.
 
@@ -445,7 +448,7 @@ resp = job.result()  # waits if needed, then returns the same TranscriptResponse
 | Member | Description |
 |---|---|
 | `task_id` | The job's id. Keep it; see [Timeouts](#timeouts-never-lose-the-task_id). |
-| `job_type` | `"transcribe"`, `"extract_video"`, `"tweet_statement"`, `"tiktok_profile"` or `"tiktok_search"` |
+| `job_type` | `"transcribe"`, `"extract_video"`, `"tweet_statement"`, `"tiktok_profile"`, `"tiktok_search"` or `"tiktok_live_search"` |
 | `status()` | Polls once and returns the `task_status` (`"processing"`, `"completed"` or `"failed"`) |
 | `done()` | Polls once; `True` when the job is `completed` or `failed` |
 | `result(...)` | Waits, then returns the same object as the blocking method; raises if the job failed |
@@ -530,7 +533,7 @@ Some errors happen before a job exists. No task is created, so there is nothing 
 | Transcribe | `TranscriptResponse` (`data.video_info`, `data.transcript`), or `TranscribeAllVideosResponse` with `all_videos=True` |
 | Extract | `ExtractionApiResponse` (`data` is a `dict` matching your schema) |
 | Tweet | `TweetStatementResponse` (`data.final_statement`, `data.detailed_analysis`, ...) |
-| TikTok profile / search | `TikTokProfileResponse` / `TikTokSearchResponse`: the first page of results |
+| TikTok profile / search / LIVE search | `TikTokProfileResponse` / `TikTokSearchResponse` / `TikTokLiveSearchResponse`: the first page of results |
 
 ---
 
@@ -834,6 +837,7 @@ def vidnavigator_webhook():
 | `tweet_statement.completed` / `tweet_statement.failed` | A tweet analysis finishes |
 | `tiktok_profile.completed` / `tiktok_profile.failed` | A profile scrape finishes |
 | `tiktok_search.completed` / `tiktok_search.failed` | A keyword search finishes |
+| `tiktok_live_search.completed` / `tiktok_live_search.failed` | A LIVE search finishes |
 
 `construct_webhook_event` rejects deliveries whose timestamp is more than 5 minutes from the current time. Change the window with `tolerance_seconds=` (or pass `None` to skip the check). To verify without parsing, use `verify_webhook_signature(body, header, secret)`, which raises the same `WebhookSignatureError`.
 
@@ -931,6 +935,7 @@ print(result.data.stats.sort_by, result.data.stats.published_within)  # what the
 | `published_within` | `str` | `"all"`, `"past_24_hours"`, `"this_week"`, `"this_month"`, `"last_3_months"` or `"last_6_months"` (rolling windows) |
 | `after_datetime` / `before_datetime` | `str` / `date` / `datetime` | Exact publish-date bounds |
 | `min_likes` / `max_likes` / `min_views` / `max_views` | `int` | Engagement filters |
+| `country` | `str` | Two-letter code (`"fr"`, `"de"`, `"jp"`, ...) whose TikTok results you get. Default `"gb"`. `"us"` is refused: TikTok asks US visitors to log in. |
 | `webhook_url` | `str` | Optional; see [Webhooks](#webhooks) |
 | `limit` | `int` | Page size of the returned first page (default 50) |
 | `include_usage`, `timeout` | | As for other [job methods](#background-jobs) |
@@ -938,6 +943,45 @@ print(result.data.stats.sort_by, result.data.stats.published_within)  # what the
 Without `sort_by`, results come back newest first. If you set `after_datetime` but not `published_within`, the smallest window covering `after_datetime` is picked automatically. `parallel_search_slices` is not a time filter; use `published_within` or the datetime bounds for that.
 
 Read further pages with `get_tiktok_search(task_id, cursor=...)`, exactly as for [profiles](#read-the-remaining-pages). Completed searches may include a `download_url` with the full JSON result.
+
+Billing: 1 `residential_request` per 30 videos TikTok returned (`result.data.stats.videos_fetched`, including the ones your filters dropped), minimum 1 per search.
+
+---
+
+## TikTok LIVE Search
+
+`search_tiktok_live` finds TikTok LIVE rooms broadcasting right now for a keyword, and returns the first page of rooms. `submit_tiktok_live_search` returns a handle instead.
+
+```python
+result = client.search_tiktok_live(query="gaming", country="us", limit=50)
+
+for room in result.data.results or []:
+    print(room.title, room.author.unique_id, room.stats.viewers, room.category, room.hashtags)
+    if room.stream_urls:
+        best = room.stream_urls.default_quality
+        print("  FLV:", room.stream_urls.flv.get(best))
+        print("  HLS:", room.stream_urls.hls.get(best))  # can be missing: not every LIVE offers HLS
+        print("  audio only:", room.stream_urls.audio_only)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `query` | `str` | Keyword phrase (at least 2 characters) |
+| `max_results` | `int` | Cap on rooms. `0` or omitted means as many as TikTok serves, about 50 per keyword. |
+| `country` | `str` | Two-letter code whose LIVE rooms you get. Default `"us"`. |
+| `include_stream_urls` | `bool` | Stream URLs are returned by default; pass `False` to leave them out |
+| `webhook_url` | `str` | Optional; see [Webhooks](#webhooks) |
+| `limit` | `int` | Page size of the returned first page (default 50) |
+| `include_usage`, `timeout` | | As for other [job methods](#background-jobs) |
+
+Each room (`TikTokLiveRoom`) has the same `id`, `url`, `author` and `stats` fields as a keyword search result, plus:
+
+- `started_at`: when the LIVE started, as a `datetime`
+- `stats.viewers` (watching now), `stats.total_viewers` (since the start), `stats.likes`, `stats.comments`, `stats.shares`
+- `hashtags`: the `#tags` of the title; `category`: the LIVE's category on TikTok (`"Gaming"`); `game_tags`
+- `stream_urls`: `flv` and `hls` URLs keyed by quality (`origin`, `uhd`, `hd`, `sd`, `ld`), `default_quality`, an `audio_only` stream, and `expires_at`. The URLs play while the LIVE is on.
+
+Results keep TikTok's ranking. A keyword with no LIVE room in that country at that moment completes with zero results. Billing: 1 `residential_request` per 30 rooms TikTok returned (`result.data.stats.rooms_fetched`), minimum 1 per search. Page further with `get_tiktok_live_search(task_id, cursor=...)`.
 
 ---
 

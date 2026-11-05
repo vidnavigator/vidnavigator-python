@@ -26,6 +26,7 @@ from vidnavigator import (
 from vidnavigator.client import USER_AGENT
 from vidnavigator.models import (
     ExtractionApiResponse,
+    TikTokLiveSearchResponse,
     TikTokSearchResponse,
     TranscribeAllVideosResponse,
     TranscriptResponse,
@@ -456,6 +457,31 @@ def test_search_tiktok_blocking_passes_limit(instant_sleep):
     assert isinstance(resp, TikTokSearchResponse) and resp.data.is_completed
     assert body(api.calls("POST")[0]) == {"query": "ai tools", "sort_by": "newest"}
     assert dict(api.calls("GET")[-1].url.params) == {"limit": "5"}
+
+
+def test_search_tiktok_live_blocking(instant_sleep):
+    submit = {"status": "success", "data": {"task_id": "l1", "task_status": "processing", "country": "gb"}}
+    room = {"id": "1", "title": "Live #music", "hashtags": ["music"], "category": "Music",
+            "stats": {"viewers": "12"},
+            "stream_urls": {"default_quality": "sd", "flv": {"sd": "https://x/s_sd.flv"}, "hls": {},
+                            "audio_only": None, "expires_at": None}}
+    api = (Api().on("POST", "/v1/tiktok/live/search", (202, submit))
+           .on("GET", "/v1/tiktok/live/search/l1",
+               tiktok_task("processing", task_id="l1", items_key="results"),
+               tiktok_task("completed", task_id="l1", items_key="results", results=[room])))
+
+    async def go():
+        async with make_client(api) as client:
+            job = await client.submit_tiktok_live_search(query="music", country="gb")
+            assert job.job_type == "tiktok_live_search" and job.data.country == "gb"
+            return await job.result(limit=7)
+
+    resp = run(go())
+    assert isinstance(resp, TikTokLiveSearchResponse) and resp.data.is_completed
+    assert resp.data.results[0].stats.viewers == 12
+    assert resp.data.results[0].stream_urls.flv == {"sd": "https://x/s_sd.flv"}
+    assert body(api.calls("POST")[0]) == {"query": "music", "country": "gb"}
+    assert dict(api.calls("GET")[-1].url.params) == {"limit": "7"}
 
 
 def test_job_failure_raises_from_error_object(instant_sleep):

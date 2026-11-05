@@ -39,6 +39,8 @@ TRANSCRIPT_URLS = {
     "vimeo": "https://vimeo.com/753580183",
     "rumble": "https://rumble.com/v7cphaw-we-were-born-corporate-slaves-since-1871..html?e9s=src_v1_viral",
     "dailymotion": "https://www.dailymotion.com/video/x8rfjqt",
+    # Spotlight with its own transcript (also used by the API monitoring job).
+    "snapchat": "https://www.snapchat.com/@pinto_040/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYY3l5aHJwdmxyAaF3ono5AaF3onooAAAAAA",
 }
 
 # Speech-to-text (transcribe_video, a background job)
@@ -50,6 +52,7 @@ TRANSCRIBE_URLS = {
     "vimeo": "https://vimeo.com/753580183",
     "rumble": "https://rumble.com/v7cphaw-we-were-born-corporate-slaves-since-1871..html?e9s=src_v1_viral",
     "dailymotion": "https://www.dailymotion.com/video/x8rfjqt",
+    "snapchat": "https://www.snapchat.com/@jemmacrawford14/spotlight/W7_EDlXWTBiXAEEniNoMPwAAYZHljeHp0cXJrAZ5cwvr2AZ5cwq33AAAAAQ",
 }
 
 TWEET_URL = "https://x.com/arielhelwani/status/2091986569276408245"

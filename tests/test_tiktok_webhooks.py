@@ -6,7 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from vidnavigator import Job, BadRequestError, VidNavigatorClient, VidNavigatorError
-from vidnavigator.models import TikTokProfileResponse, TikTokSearchResponse
+from vidnavigator.models import TikTokLiveSearchResponse, TikTokProfileResponse, TikTokSearchResponse
 
 from .helpers import tiktok_task
 
@@ -204,3 +204,170 @@ def test_search_filters_echo_parses_nulls(client):
     assert resp.data.filters.sort_by is None
     assert resp.data.filters.after_datetime == "2026-09-01"
     assert resp.data.error is None and resp.data.webhook is None
+
+
+def test_submit_tiktok_search_country(client):
+    raw = _search_submit()
+    raw["data"]["country"] = "fr"
+    with patch.object(client, "_request", return_value=raw) as req:
+        handle = client.submit_tiktok_search(query="football", country="fr")
+    assert handle.data.country == "fr"
+    assert req.call_args[1]["json_body"] == {"query": "football", "country": "fr"}
+
+
+def test_search_task_country_and_billing_stats(client):
+    raw = _search("completed", country="fr", stats={
+        "pages_fetched": "2", "videos_fetched": "58", "results_count": "41", "country": "fr",
+        "parallel_search_slices": "2", "items_examined": "58", "items_filtered_out": "17",
+        "items_deduplicated": "3"},
+        webhook={"status": "delivered", "attempts": 1, "response_status": 200,
+                 "last_error": None, "delivered_at": "2026-11-05T12:00:00+00:00"})
+    with patch.object(client, "_request", return_value=raw):
+        resp = client.get_tiktok_search("s1")
+    stats = resp.data.stats
+    assert resp.data.country == "fr" and stats.country == "fr"
+    assert (stats.videos_fetched, stats.parallel_search_slices) == (58, 2)
+    assert (stats.items_examined, stats.items_filtered_out, stats.items_deduplicated) == (58, 17, 3)
+    assert resp.data.webhook.status == "delivered" and resp.data.webhook.attempts == 1
+
+
+# ---------------------------------------------------------------------------
+# LIVE search
+# ---------------------------------------------------------------------------
+
+LIVE_ROOM = {
+    "id": "7704440240265644830",
+    "title": "Ranked grind #fortnite #FYP",
+    "url": "https://www.tiktok.com/@creator/live",
+    "started_at": "2026-11-04T22:04:46Z",
+    "author": {"id": "6628548115959152646", "unique_id": "creator", "nickname": "Creator",
+               "sec_uid": "MS4wLjABAAAA", "followers": "576168", "avatar_url": "https://p16.example/a.webp"},
+    "stats": {"viewers": "1296", "total_viewers": 232347, "likes": 301154, "comments": None, "shares": 360},
+    "hashtags": ["fortnite", "FYP"],
+    "category": "Gaming",
+    "game_tags": ["Fortnite"],
+    "cover_url": "https://p19.example/cover.webp",
+    "stream_urls": {
+        "default_quality": "hd",
+        "flv": {"hd": "https://pull-f5.example/stream_hd.flv?expire=1795089584"},
+        "hls": {"hd": "https://pull-hls.example/stream_hd/index.m3u8?expire=1795089584"},
+        "audio_only": "https://pull-f5.example/stream.flv?expire=1795089584&only_audio=1",
+        "expires_at": "2026-11-19T11:59:44Z",
+    },
+}
+
+
+def _live_submit(**data):
+    return {
+        "status": "success",
+        "data": {
+            "task_id": "l1",
+            "task_status": "processing",
+            "query": "gaming",
+            "country": "us",
+            "max_results": 0,
+            "include_stream_urls": True,
+            "check_status_url": "/v1/tiktok/live/search/l1",
+            "webhook_url": None,
+            **data,
+        },
+    }
+
+
+def _live(status, **extra):
+    return tiktok_task(status, task_id="l1", items_key="results", **extra)
+
+
+def test_submit_tiktok_live_search_returns_handle(client):
+    raw = _live_submit(country="gb", max_results=20, include_stream_urls=False,
+                       webhook_url="https://example.com/hook")
+    with patch.object(client, "_request", return_value=raw) as req:
+        handle = client.submit_tiktok_live_search(
+            query="gaming", max_results=20, country="gb", include_stream_urls=False,
+            webhook_url="https://example.com/hook",
+        )
+    assert isinstance(handle, Job)
+    assert handle.job_type == "tiktok_live_search"
+    assert handle.task_id == "l1"
+    assert handle.data.country == "gb" and handle.data.include_stream_urls is False
+    req.assert_called_once_with(
+        "POST",
+        "/tiktok/live/search",
+        json_body={"query": "gaming", "max_results": 20, "country": "gb",
+                   "include_stream_urls": False, "webhook_url": "https://example.com/hook"},
+    )
+
+
+def test_submit_tiktok_live_search_omits_unset_params(client):
+    with patch.object(client, "_request", return_value=_live_submit()) as req:
+        client.submit_tiktok_live_search(query="gaming")
+    # Stream URLs are on by default server-side: nothing to send.
+    assert req.call_args[1]["json_body"] == {"query": "gaming"}
+
+
+def test_search_tiktok_live_blocking_parses_rooms(client, no_sleep):
+    responses = [
+        _live_submit(),
+        _live("processing"),
+        _live("completed", query="gaming", country="us", results=[LIVE_ROOM],
+              stats={"pages_fetched": 1, "rooms_fetched": "44", "results_count": 44,
+                     "has_more": False, "country": "us"},
+              pagination={"limit": 10, "offset": 0, "total_items": 44, "has_next": True,
+                          "has_prev": False, "next_cursor": "eyJvIjoxMH0="},
+              webhook=None),
+    ]
+    with patch.object(client, "_request", side_effect=responses) as req:
+        resp = client.search_tiktok_live(query="gaming", limit=10, include_usage=True)
+    assert isinstance(resp, TikTokLiveSearchResponse)
+    assert resp.data.is_completed and resp.data.country == "us"
+    assert resp.data.stats.rooms_fetched == 44 and resp.data.stats.has_more is False
+    room = resp.data.results[0]
+    assert room.id == "7704440240265644830"
+    assert room.started_at.isoformat() == "2026-11-04T22:04:46+00:00"
+    assert room.author.followers == 576168 and room.author.sec_uid == "MS4wLjABAAAA"
+    assert room.stats.viewers == 1296 and room.stats.comments is None
+    assert room.hashtags == ["fortnite", "FYP"] and room.category == "Gaming"
+    assert room.game_tags == ["Fortnite"]
+    assert room.stream_urls.default_quality == "hd"
+    assert room.stream_urls.flv["hd"].endswith("expire=1795089584")
+    assert room.stream_urls.hls["hd"].endswith("expire=1795089584")
+    assert "only_audio=1" in room.stream_urls.audio_only
+    assert room.stream_urls.expires_at.isoformat() == "2026-11-19T11:59:44+00:00"
+    assert resp.data.pagination.next_cursor == "eyJvIjoxMH0="
+    assert req.call_args_list[0] == (("POST", "/tiktok/live/search"), {"json_body": {"query": "gaming"}})
+    assert req.call_args == (
+        ("GET", "/tiktok/live/search/l1"),
+        {"params": {"limit": 10, "include_usage": "true"}},
+    )
+
+
+def test_live_room_without_stream_urls(client):
+    room = {k: v for k, v in LIVE_ROOM.items() if k != "stream_urls"}
+    with patch.object(client, "_request", return_value=_live("completed", results=[room])):
+        resp = client.get_tiktok_live_search("l1")
+    assert resp.data.results[0].stream_urls is None
+
+
+def test_live_room_with_empty_hls(client):
+    room = {**LIVE_ROOM, "stream_urls": {**LIVE_ROOM["stream_urls"], "hls": {}}}
+    with patch.object(client, "_request", return_value=_live("completed", results=[room])):
+        resp = client.get_tiktok_live_search("l1")
+    assert resp.data.results[0].stream_urls.hls == {}
+
+
+def test_get_tiktok_live_search_page(client):
+    with patch.object(client, "_request", return_value=_live("completed")) as req:
+        resp = client.get_tiktok_live_search("l1", cursor="abc", limit=25)
+    assert isinstance(resp, TikTokLiveSearchResponse)
+    req.assert_called_once_with("GET", "/tiktok/live/search/l1", params={"limit": 25, "cursor": "abc"})
+
+
+def test_live_search_resume_and_failure(client, no_sleep):
+    raw = _live("failed", error={"error": "search_failed", "message": "TikTok LIVE search failed.",
+                                 "http_status": 502})
+    with patch.object(client, "_request", return_value=raw) as req:
+        handle = client.resume_job("tiktok_live_search", "l1")
+        with pytest.raises(VidNavigatorError, match="TikTok LIVE search failed") as exc_info:
+            handle.result()
+    assert exc_info.value.error_code == "search_failed"
+    assert req.call_args[0] == ("GET", "/tiktok/live/search/l1")

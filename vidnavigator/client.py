@@ -106,7 +106,8 @@ class VidNavigatorClient:
         """Rebuild the handle of a job submitted earlier from its ``task_id``.
 
         *job_type* is one of ``"transcribe"``, ``"extract_video"``,
-        ``"tweet_statement"``, ``"tiktok_profile"`` or ``"tiktok_search"``.
+        ``"tweet_statement"``, ``"tiktok_profile"``, ``"tiktok_search"`` or
+        ``"tiktok_live_search"``.
         Use it after an :class:`~vidnavigator.JobTimeoutError`, a restart,
         or a webhook delivery. Results stay readable for 1 hour after the job
         finishes.
@@ -459,6 +460,7 @@ class VidNavigatorClient:
         max_likes: Optional[int] = None,
         min_views: Optional[int] = None,
         max_views: Optional[int] = None,
+        country: Optional[str] = None,
         webhook_url: Optional[str] = None,
     ) -> Job:
         """Start a TikTok keyword search job and return its handle immediately.
@@ -471,6 +473,10 @@ class VidNavigatorClient:
         published_within:
             ``"all"``, ``"past_24_hours"``, ``"this_week"``, ``"this_month"``,
             ``"last_3_months"`` or ``"last_6_months"`` (rolling windows).
+        country:
+            Two-letter country code (``"fr"``, ``"de"``, ...) whose TikTok
+            results you get. Defaults to ``"gb"``; ``"us"`` is not supported.
+            The API lists the accepted codes.
         webhook_url:
             Passed through to the API (``""`` opts out of your account
             default). The event carries a summary only.
@@ -487,6 +493,7 @@ class VidNavigatorClient:
             max_likes=max_likes,
             min_views=min_views,
             max_views=max_views,
+            country=country,
             webhook_url=webhook_url,
         ))
 
@@ -504,6 +511,7 @@ class VidNavigatorClient:
         max_likes: Optional[int] = None,
         min_views: Optional[int] = None,
         max_views: Optional[int] = None,
+        country: Optional[str] = None,
         webhook_url: Optional[str] = None,
         limit: int = 50,
         include_usage: bool = False,
@@ -526,6 +534,7 @@ class VidNavigatorClient:
             max_likes=max_likes,
             min_views=min_views,
             max_views=max_views,
+            country=country,
             webhook_url=webhook_url,
         )
         return job.result(timeout=timeout, include_usage=include_usage, limit=limit)
@@ -544,6 +553,84 @@ class VidNavigatorClient:
         task is ``completed``). Polling itself is free.
         """
         return self._call(_core.get_tiktok_search(
+            task_id, cursor=cursor, limit=limit, include_usage=include_usage,
+        ))
+
+    def submit_tiktok_live_search(
+        self,
+        *,
+        query: str,
+        max_results: Optional[int] = None,
+        country: Optional[str] = None,
+        include_stream_urls: Optional[bool] = None,
+        webhook_url: Optional[str] = None,
+    ) -> Job:
+        """Start a search of TikTok LIVE rooms broadcasting now, and return its handle immediately.
+
+        Parameters
+        ----------
+        max_results:
+            Upper bound on rooms; ``0`` or ``None`` means as many as TikTok
+            serves (about 50 per keyword).
+        country:
+            Two-letter country code whose LIVE rooms you get. Defaults to
+            ``"us"``; the API lists the accepted codes.
+        include_stream_urls:
+            The API returns each room's playback URLs by default (FLV and HLS
+            by quality, plus an audio-only stream). Pass ``False`` to leave
+            them out.
+        webhook_url:
+            Passed through to the API (``""`` opts out of your account
+            default). The event carries a summary only.
+        """
+        return self._submit(_core.submit_tiktok_live_search(
+            query=query,
+            max_results=max_results,
+            country=country,
+            include_stream_urls=include_stream_urls,
+            webhook_url=webhook_url,
+        ))
+
+    def search_tiktok_live(
+        self,
+        *,
+        query: str,
+        max_results: Optional[int] = None,
+        country: Optional[str] = None,
+        include_stream_urls: Optional[bool] = None,
+        webhook_url: Optional[str] = None,
+        limit: int = 50,
+        include_usage: bool = False,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+    ) -> models.TikTokLiveSearchResponse:
+        """Search TikTok LIVE rooms and wait for the first page of *limit* rooms.
+
+        Page further with :meth:`get_tiktok_live_search`. See
+        :meth:`submit_tiktok_live_search` for the parameters.
+        """
+        job = self.submit_tiktok_live_search(
+            query=query,
+            max_results=max_results,
+            country=country,
+            include_stream_urls=include_stream_urls,
+            webhook_url=webhook_url,
+        )
+        return job.result(timeout=timeout, include_usage=include_usage, limit=limit)
+
+    def get_tiktok_live_search(
+        self,
+        task_id: str,
+        *,
+        cursor: Optional[str] = None,
+        limit: int = 50,
+        include_usage: bool = False,
+    ) -> models.TikTokLiveSearchResponse:
+        """Fetch a TikTok LIVE search task once and retrieve a page of rooms.
+
+        Set *include_usage* to receive a ``usage`` block (only populated once the
+        task is ``completed``). Polling itself is free.
+        """
+        return self._call(_core.get_tiktok_live_search(
             task_id, cursor=cursor, limit=limit, include_usage=include_usage,
         ))
 

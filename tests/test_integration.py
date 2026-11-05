@@ -298,6 +298,84 @@ def test_tiktok_search_rejects_private_webhook_url(client):
         client.submit_tiktok_search(query="ai tools", webhook_url="https://127.0.0.1/hook")
 
 
+def test_tiktok_search_country(client):
+    result = client.search_tiktok(
+        query="football", country="fr", max_results=2, webhook_url="",
+        include_usage=True, timeout=TIKTOK_TIMEOUT_SECONDS,
+    )
+    assert result.data.task_status == "completed"
+    assert result.data.country == "fr"
+    assert result.data.stats.country == "fr"
+    assert result.data.stats.videos_fetched is not None and result.data.stats.videos_fetched >= 1
+    # No webhook was configured for this task.
+    assert result.data.webhook is None
+    if result.usage:
+        assert result.usage.charge_for("residential_request") is not None
+
+
+def test_tiktok_search_rejects_us_country(client):
+    with pytest.raises(BadRequestError) as exc_info:
+        client.submit_tiktok_search(query="football", country="us")
+    # Keyword search reports every bad parameter as invalid_parameter.
+    assert exc_info.value.error_code == "invalid_parameter"
+    assert "log in" in str(exc_info.value)
+
+
+def test_tiktok_live_search_lifecycle(client):
+    task = client.submit_tiktok_live_search(query="gaming", max_results=5, webhook_url="")
+    assert isinstance(task, Job)
+    assert task.job_type == "tiktok_live_search"
+    assert task.data.country == "us"
+    assert task.data.include_stream_urls is True
+
+    result = task.result(limit=5, include_usage=True, timeout=TIKTOK_TIMEOUT_SECONDS)
+    assert result.data.task_status == "completed"
+    assert result.data.error is None
+    assert result.data.webhook is None
+    stats = result.data.stats
+    assert stats.country == "us" and stats.rooms_fetched is not None
+    assert "transport" not in _dump(stats)
+    assert result.usage is not None and result.usage.charge_for("residential_request") is not None
+
+    rooms = result.data.results or []
+    # "gaming" had 6 to 44 rooms broadcasting from the US in every test run.
+    assert rooms, "no LIVE room for 'gaming' in the US"
+    for room in rooms:
+        assert room.id and room.url and room.url.endswith("/live")
+        assert room.author and room.author.unique_id
+        assert room.stats and isinstance(room.stats.viewers, int)
+        assert isinstance(room.hashtags, list)
+        if room.started_at:
+            assert isinstance(room.started_at, datetime)
+        urls = room.stream_urls
+        assert urls is not None, "stream URLs are returned by default"
+        assert urls.flv and urls.default_quality in urls.flv
+        assert all(u.startswith("https://") for u in list(urls.flv.values()) + list(urls.hls.values()))
+
+    if result.data.download_url:
+        with urlopen(result.data.download_url) as response:
+            downloaded = json.load(response)
+        assert isinstance(downloaded.get("results", []), list)
+        assert "transport" not in (downloaded.get("stats") or {})
+
+
+def test_tiktok_live_search_without_stream_urls(client):
+    result = client.search_tiktok_live(
+        query="music", country="gb", max_results=3, include_stream_urls=False,
+        webhook_url="", timeout=TIKTOK_TIMEOUT_SECONDS,
+    )
+    assert result.data.task_status == "completed"
+    assert result.data.country == "gb"
+    for room in result.data.results or []:
+        assert room.stream_urls is None
+
+
+def test_tiktok_live_search_rejects_unsupported_country(client):
+    with pytest.raises(BadRequestError) as exc_info:
+        client.submit_tiktok_live_search(query="gaming", country="cn")
+    assert exc_info.value.error_code == "invalid_country"
+
+
 # -- Background jobs -------------------------------------------------------
 
 def test_extract_video_data_blocking_runs_as_job(client):
@@ -404,7 +482,7 @@ def test_transcribe_video_blocking(client):
 
 @pytest.mark.parametrize(
     "job_type",
-    ["transcribe", "extract_video", "tweet_statement"],
+    ["transcribe", "extract_video", "tweet_statement", "tiktok_live_search"],
 )
 def test_unknown_task_raises_not_found(client, job_type):
     with pytest.raises(NotFoundError) as exc_info:

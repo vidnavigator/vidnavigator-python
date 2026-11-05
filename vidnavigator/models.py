@@ -570,12 +570,23 @@ class TikTokSearchFilters(BaseModel):
 
 class TikTokSearchStatsSummary(BaseModel):
     pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
+    # Distinct videos TikTok returned, filtered-out ones included. Billed at
+    # one ``residential_request`` per 30, minimum 1 per search.
+    videos_fetched: Optional[int] = Field(None, alias="videos_fetched")
     results_count: Optional[int] = Field(None, alias="results_count")
     next_search_cursor: Optional[int] = Field(None, alias="next_search_cursor")
+    parallel_search_slices: Optional[int] = Field(None, alias="parallel_search_slices")
     sort_by: Optional[str] = Field(None, alias="sort_by")
     published_within: Optional[str] = Field(None, alias="published_within")
+    country: Optional[str] = None
+    # Only when filters were set.
+    items_examined: Optional[int] = Field(None, alias="items_examined")
+    items_filtered_out: Optional[int] = Field(None, alias="items_filtered_out")
+    # Only with parallel_search_slices > 1.
+    items_deduplicated: Optional[int] = Field(None, alias="items_deduplicated")
 
-    @_pre_validator("pages_fetched", "results_count", "next_search_cursor")
+    @_pre_validator("pages_fetched", "videos_fetched", "results_count", "next_search_cursor",
+                    "parallel_search_slices", "items_examined", "items_filtered_out", "items_deduplicated")
     @classmethod
     def _coerce_int_fields(cls, v):
         return _coerce_optional_int(v)
@@ -585,6 +596,8 @@ class TikTokSearchTask(_TaskStatusMixin, BaseModel):
     task_id: Optional[str] = Field(None, alias="task_id")
     task_status: Optional[str] = Field(None, alias="task_status")
     query: Optional[str] = None
+    # Country whose TikTok results the search returned (``gb`` by default).
+    country: Optional[str] = None
     parallel_search_slices: Optional[int] = Field(None, alias="parallel_search_slices")
     filters: Optional[TikTokSearchFilters] = None
     stats: Optional[TikTokSearchStatsSummary] = None
@@ -603,6 +616,100 @@ class TikTokSearchTask(_TaskStatusMixin, BaseModel):
     @classmethod
     def _coerce_int_fields(cls, v):
         return _coerce_optional_int(v)
+
+
+class TikTokLiveAuthor(BaseModel):
+    id: Optional[str] = None
+    unique_id: Optional[str] = Field(None, alias="unique_id")
+    nickname: Optional[str] = None
+    sec_uid: Optional[str] = Field(None, alias="sec_uid")
+    followers: Optional[int] = None
+    avatar_url: Optional[str] = Field(None, alias="avatar_url")
+
+    @_pre_validator("followers")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokLiveStats(BaseModel):
+    # Watching when the search ran.
+    viewers: Optional[int] = None
+    # Since the LIVE started.
+    total_viewers: Optional[int] = Field(None, alias="total_viewers")
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    shares: Optional[int] = None
+
+    @_pre_validator("viewers", "total_viewers", "likes", "comments", "shares")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokLiveStreamUrls(BaseModel):
+    """Playback URLs of a LIVE room. They stop working when the LIVE ends."""
+
+    default_quality: Optional[str] = Field(None, alias="default_quality")
+    # Keyed by quality: ``origin``, ``uhd``, ``hd``, ``sd``, ``ld`` (those the LIVE offers).
+    flv: Dict[str, str] = Field(default_factory=dict)
+    # Same keys, when TikTok provides HLS. Can be empty.
+    hls: Dict[str, str] = Field(default_factory=dict)
+    # HTTP-FLV URL of the audio-only stream.
+    audio_only: Optional[str] = Field(None, alias="audio_only")
+    expires_at: Optional[datetime] = Field(None, alias="expires_at")
+
+
+class TikTokLiveRoom(BaseModel):
+    """A TikTok LIVE room that was broadcasting when the search ran."""
+
+    id: Optional[str] = None
+    title: Optional[str] = None
+    url: Optional[str] = None
+    started_at: Optional[datetime] = Field(None, alias="started_at")
+    author: Optional[TikTokLiveAuthor] = None
+    stats: Optional[TikTokLiveStats] = None
+    # ``#tags`` written in the title, without ``#``.
+    hashtags: Optional[List[str]] = None
+    # The LIVE's category on TikTok, e.g. ``"Gaming"``.
+    category: Optional[str] = None
+    game_tags: Optional[List[str]] = Field(None, alias="game_tags")
+    cover_url: Optional[str] = Field(None, alias="cover_url")
+    # Absent when the search was submitted with ``include_stream_urls=False``.
+    stream_urls: Optional[TikTokLiveStreamUrls] = Field(None, alias="stream_urls")
+
+
+class TikTokLiveSearchStats(BaseModel):
+    pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
+    # Distinct rooms TikTok returned, those past ``max_results`` included.
+    # Billed at one ``residential_request`` per 30, minimum 1 per search.
+    rooms_fetched: Optional[int] = Field(None, alias="rooms_fetched")
+    results_count: Optional[int] = Field(None, alias="results_count")
+    has_more: Optional[bool] = Field(None, alias="has_more")
+    country: Optional[str] = None
+
+    @_pre_validator("pages_fetched", "rooms_fetched", "results_count")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokLiveSearchTask(_TaskStatusMixin, BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    query: Optional[str] = None
+    country: Optional[str] = None
+    stats: Optional[TikTokLiveSearchStats] = None
+    results: Optional[List[TikTokLiveRoom]] = None
+    pagination: Optional[TikTokProfilePagination] = None
+    download_url: Optional[str] = Field(None, alias="download_url")
+    # Deprecated by the API in favour of ``error``; kept for existing integrations.
+    error_message: Optional[str] = Field(None, alias="error_message")
+    created_at: Optional[str] = Field(None, alias="created_at")
+    completed_at: Optional[str] = Field(None, alias="completed_at")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+    error: Optional[AsyncJobError] = None
+    webhook: Optional[AsyncJobWebhookStatus] = None
 
 
 class TweetStatementData(BaseModel):
@@ -761,6 +868,7 @@ class TikTokSearchSubmitData(BaseModel):
     task_id: Optional[str] = Field(None, alias="task_id")
     task_status: Optional[str] = Field(None, alias="task_status")
     query: Optional[str] = None
+    country: Optional[str] = None
     max_results: Optional[int] = Field(None, alias="max_results")
     parallel_search_slices: Optional[int] = Field(None, alias="parallel_search_slices")
     filters: Optional[TikTokSearchFilters] = None
@@ -783,6 +891,35 @@ class TikTokSearchSubmitResponse(BaseModel):
 class TikTokSearchResponse(BaseModel):
     status: str
     data: TikTokSearchTask
+    usage: Optional[UsageBlock] = None
+
+
+class TikTokLiveSearchSubmitData(BaseModel):
+    task_id: Optional[str] = Field(None, alias="task_id")
+    task_status: Optional[str] = Field(None, alias="task_status")
+    query: Optional[str] = None
+    country: Optional[str] = None
+    max_results: Optional[int] = Field(None, alias="max_results")
+    include_stream_urls: Optional[bool] = Field(None, alias="include_stream_urls")
+    expires_at: Optional[str] = Field(None, alias="expires_at")
+    check_status_url: Optional[str] = Field(None, alias="check_status_url")
+    webhook_url: Optional[str] = Field(None, alias="webhook_url")
+    message: Optional[str] = None
+
+    @_pre_validator("max_results")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokLiveSearchSubmitResponse(BaseModel):
+    status: str
+    data: TikTokLiveSearchSubmitData
+
+
+class TikTokLiveSearchResponse(BaseModel):
+    status: str
+    data: TikTokLiveSearchTask
     usage: Optional[UsageBlock] = None
 
 
