@@ -14,6 +14,7 @@ except ImportError:  # pragma: no cover - exercised only without the extra
 
 from .exceptions import VidNavigatorError
 from .jobs import DEFAULT_JOB_TIMEOUT, AsyncJob
+from .operations import Operation
 from . import _core, models
 from ._core import DEFAULT_BASE_URL, DateLike, Request
 
@@ -55,6 +56,21 @@ class AsyncVidNavigatorClient:
         self.timeout = timeout
         self._owns_http_client = http_client is None
         self.http_client = http_client or httpx.AsyncClient(timeout=timeout)
+
+        # Same operation objects as the sync client: `await client.tiktok_search(...)`,
+        # `await client.tiktok_search.submit(...)`, `client.tiktok_search.resume(task_id)`.
+        self.transcribe = Operation("transcribe", self.transcribe_video, self.submit_transcribe_video,
+                                    self.resume_job)
+        self.extract_video = Operation("extract_video", self.extract_video_data,
+                                       self.submit_extract_video_data, self.resume_job)
+        self.tweet_statement = Operation("tweet_statement", self.get_tweet_statement,
+                                         self.submit_tweet_statement, self.resume_job)
+        self.tiktok_profile = Operation("tiktok_profile", self.scrape_tiktok_profile,
+                                        self.submit_tiktok_profile_scrape, self.resume_job)
+        self.tiktok_search = Operation("tiktok_search", self.search_tiktok, self.submit_tiktok_search,
+                                       self.resume_job)
+        self.tiktok_live_search = Operation("tiktok_live_search", self.search_tiktok_live,
+                                            self.submit_tiktok_live_search, self.resume_job)
 
     # ---------------------------------------------------------------------
     # Internal helpers
@@ -330,11 +346,11 @@ class AsyncVidNavigatorClient:
         min_likes: Optional[int] = None,
         max_likes: Optional[int] = None,
         webhook_url: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = None,
         include_usage: bool = False,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TikTokProfileResponse:
-        """Scrape a TikTok profile and wait for the first page of *limit* videos."""
+        """Scrape a TikTok profile and wait for every matching video (or the first page of *limit*)."""
         job = await self.submit_tiktok_profile_scrape(
             profile_url=profile_url,
             max_posts=max_posts,
@@ -409,11 +425,11 @@ class AsyncVidNavigatorClient:
         max_views: Optional[int] = None,
         country: Optional[str] = None,
         webhook_url: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = None,
         include_usage: bool = False,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TikTokSearchResponse:
-        """Run a TikTok keyword search and wait for the first page of *limit* results."""
+        """Run a TikTok keyword search and wait for every result (or the first page of *limit*)."""
         job = await self.submit_tiktok_search(
             query=query,
             max_results=max_results,
@@ -470,11 +486,11 @@ class AsyncVidNavigatorClient:
         country: Optional[str] = None,
         include_stream_urls: Optional[bool] = None,
         webhook_url: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = None,
         include_usage: bool = False,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TikTokLiveSearchResponse:
-        """Search TikTok LIVE rooms and wait for the first page of *limit* rooms."""
+        """Search TikTok LIVE rooms and wait for every room (or the first page of *limit*)."""
         job = await self.submit_tiktok_live_search(
             query=query,
             max_results=max_results,

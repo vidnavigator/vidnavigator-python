@@ -422,6 +422,18 @@ Each job operation comes in two shapes:
 
 Both shapes take the same parameters, except that `include_usage`, `timeout` and (for TikTok) `limit` are passed to `result()` on a handle.
 
+### Operation objects
+
+Each operation is also an object, as in the JavaScript SDK. Call it to wait for the result, use `.submit(...)` for a handle, and `.resume(task_id)` to rebuild a handle later:
+
+```python
+result = client.tiktok_search(query="grève", country="fr")      # waits, every result
+job = client.tiktok_search.submit(query="grève", country="fr")  # returns a Job right away
+job = client.tiktok_search.resume(saved_task_id)                # same handle, later
+```
+
+The objects are `client.transcribe`, `client.extract_video`, `client.tweet_statement`, `client.tiktok_profile`, `client.tiktok_search` and `client.tiktok_live_search`. They take the same parameters as the methods in the table above, and the async client has the same ones (`await client.tiktok_search(...)`).
+
 ### Blocking: one call, one result
 
 ```python
@@ -533,7 +545,7 @@ Some errors happen before a job exists. No task is created, so there is nothing 
 | Transcribe | `TranscriptResponse` (`data.video_info`, `data.transcript`), or `TranscribeAllVideosResponse` with `all_videos=True` |
 | Extract | `ExtractionApiResponse` (`data` is a `dict` matching your schema) |
 | Tweet | `TweetStatementResponse` (`data.final_statement`, `data.detailed_analysis`, ...) |
-| TikTok profile / search / LIVE search | `TikTokProfileResponse` / `TikTokSearchResponse` / `TikTokLiveSearchResponse`: the first page of results |
+| TikTok profile / search / LIVE search | `TikTokProfileResponse` / `TikTokSearchResponse` / `TikTokLiveSearchResponse`, with every video / result / room (all pages merged), or one page when you pass `limit` |
 
 ---
 
@@ -847,14 +859,13 @@ Delivery is at-least-once and best effort: up to 5 attempts over about 13 minute
 
 ## TikTok Profile Scraping
 
-`scrape_tiktok_profile` runs a [background job](#background-jobs) and returns the first page of videos:
+`scrape_tiktok_profile` runs a [background job](#background-jobs) and returns every matching video, all pages merged:
 
 ```python
 result = client.scrape_tiktok_profile(
     profile_url="https://www.tiktok.com/@tiktok",
     max_posts=100,
     after_datetime="2024-01-01",
-    limit=50,
 )
 task_id = result.data.task_id
 
@@ -862,7 +873,7 @@ for video in result.data.videos or []:
     print(video.title, video.published_at, video.likes, video.url)
 ```
 
-To start the scrape without waiting, use `submit_tiktok_profile_scrape(...)`, then call `job.result(limit=50)` when you want the videos.
+To start the scrape without waiting, use `client.tiktok_profile.submit(...)` (or `submit_tiktok_profile_scrape(...)`), then call `job.result()` when you want the videos.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -871,12 +882,14 @@ To start the scrape without waiting, use `submit_tiktok_profile_scrape(...)`, th
 | `after_datetime` / `before_datetime` | `str` / `date` / `datetime` | Only include videos published in this window |
 | `min_likes` / `max_likes` | `int` | Like-count filters |
 | `webhook_url` | `str` | Optional; see [Webhooks](#webhooks) |
-| `limit` | `int` | Page size of the returned first page (default 50) |
+| `limit` | `int` | Optional: return only the first page of this size (up to 500) instead of every video |
 | `include_usage`, `timeout` | | As for other [job methods](#background-jobs) |
 
 `after_datetime` and `before_datetime` accept `YYYY-MM-DD` strings, ISO datetimes with a timezone, or Python `date` / `datetime` objects. In responses, `video.published_at` is a Python `datetime`, and `views`, `likes`, `reposts` and `comments` are integers.
 
 ### Read the remaining pages
+
+Only needed when you passed `limit`:
 
 ```python
 pagination = result.data.pagination
@@ -908,7 +921,7 @@ if result.data.download_url:
 
 ## TikTok Keyword Search
 
-`search_tiktok` runs a background job and returns the first page of results. `submit_tiktok_search` returns a handle instead.
+`search_tiktok` (or `client.tiktok_search(...)`) runs a background job and returns every result, all pages merged. `submit_tiktok_search` (or `client.tiktok_search.submit(...)`) returns a handle instead.
 
 ```python
 result = client.search_tiktok(
@@ -917,7 +930,6 @@ result = client.search_tiktok(
     sort_by="most_liked",
     published_within="this_month",
     min_views=1000,
-    limit=50,
 )
 
 for item in result.data.results or []:
@@ -937,12 +949,12 @@ print(result.data.stats.sort_by, result.data.stats.published_within)  # what the
 | `min_likes` / `max_likes` / `min_views` / `max_views` | `int` | Engagement filters |
 | `country` | `str` | Two-letter code (`"fr"`, `"de"`, `"jp"`, ...) whose TikTok results you get. Default `"gb"`. `"us"` is refused: TikTok asks US visitors to log in. |
 | `webhook_url` | `str` | Optional; see [Webhooks](#webhooks) |
-| `limit` | `int` | Page size of the returned first page (default 50) |
+| `limit` | `int` | Optional: return only the first page of this size (up to 500) instead of every result |
 | `include_usage`, `timeout` | | As for other [job methods](#background-jobs) |
 
 Without `sort_by`, results come back newest first. If you set `after_datetime` but not `published_within`, the smallest window covering `after_datetime` is picked automatically. `parallel_search_slices` is not a time filter; use `published_within` or the datetime bounds for that.
 
-Read further pages with `get_tiktok_search(task_id, cursor=...)`, exactly as for [profiles](#read-the-remaining-pages). Completed searches may include a `download_url` with the full JSON result.
+With `limit`, read further pages with `get_tiktok_search(task_id, cursor=...)`, exactly as for [profiles](#read-the-remaining-pages). Completed searches may include a `download_url` with the full JSON result.
 
 Billing: 1 `residential_request` per 30 videos TikTok returned (`result.data.stats.videos_fetched`, including the ones your filters dropped), minimum 1 per search.
 
@@ -950,10 +962,10 @@ Billing: 1 `residential_request` per 30 videos TikTok returned (`result.data.sta
 
 ## TikTok LIVE Search
 
-`search_tiktok_live` finds TikTok LIVE rooms broadcasting right now for a keyword, and returns the first page of rooms. `submit_tiktok_live_search` returns a handle instead.
+`search_tiktok_live` (or `client.tiktok_live_search(...)`) finds TikTok LIVE rooms broadcasting right now for a keyword, and returns every room. `submit_tiktok_live_search` (or `client.tiktok_live_search.submit(...)`) returns a handle instead.
 
 ```python
-result = client.search_tiktok_live(query="gaming", country="us", limit=50)
+result = client.tiktok_live_search(query="gaming", country="us")
 
 for room in result.data.results or []:
     print(room.title, room.author.unique_id, room.stats.viewers, room.category, room.hashtags)
@@ -971,7 +983,7 @@ for room in result.data.results or []:
 | `country` | `str` | Two-letter code whose LIVE rooms you get. Default `"us"`. |
 | `include_stream_urls` | `bool` | Stream URLs are returned by default; pass `False` to leave them out |
 | `webhook_url` | `str` | Optional; see [Webhooks](#webhooks) |
-| `limit` | `int` | Page size of the returned first page (default 50) |
+| `limit` | `int` | Optional: return only the first page of this size |
 | `include_usage`, `timeout` | | As for other [job methods](#background-jobs) |
 
 Each room (`TikTokLiveRoom`) has the same `id`, `url`, `author` and `stats` fields as a keyword search result, plus:
@@ -981,7 +993,7 @@ Each room (`TikTokLiveRoom`) has the same `id`, `url`, `author` and `stats` fiel
 - `hashtags`: the `#tags` of the title; `category`: the LIVE's category on TikTok (`"Gaming"`); `game_tags`
 - `stream_urls`: `flv` and `hls` URLs keyed by quality (`origin`, `uhd`, `hd`, `sd`, `ld`), `default_quality`, an `audio_only` stream, and `expires_at`. The URLs play while the LIVE is on.
 
-Results keep TikTok's ranking. A keyword with no LIVE room in that country at that moment completes with zero results. Billing: 1 `residential_request` per 30 rooms TikTok returned (`result.data.stats.rooms_fetched`), minimum 1 per search. Page further with `get_tiktok_live_search(task_id, cursor=...)`.
+Results keep TikTok's ranking. A keyword with no LIVE room in that country at that moment completes with zero results. Billing: 1 `residential_request` per 30 rooms TikTok returned (`result.data.stats.rooms_fetched`), minimum 1 per search.
 
 ---
 
@@ -1246,6 +1258,13 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 2.2.0
+
+- **TikTok LIVE search:** `search_tiktok_live` / `client.tiktok_live_search`, with typed rooms and their stream URLs.
+- **`country` on TikTok keyword search**, plus `stats.videos_fetched` (what is billed) and the `items_*` counters.
+- **[Operation objects](#operation-objects)**, as in the JavaScript SDK: `client.tiktok_search(...)`, `.submit(...)`, `.resume(task_id)`, for every background job.
+- **TikTok results come whole:** `scrape_tiktok_profile`, `search_tiktok`, `search_tiktok_live` and `job.result()` on TikTok jobs now return every item, all pages merged, like the JavaScript SDK. Before, they returned the first 50. Pass `limit` to keep getting one page.
 
 ## Upgrading from 1.x
 

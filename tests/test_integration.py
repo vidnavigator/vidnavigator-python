@@ -370,6 +370,16 @@ def test_tiktok_live_search_without_stream_urls(client):
         assert room.stream_urls is None
 
 
+def test_operation_object_returns_every_room(client):
+    result = client.tiktok_live_search(query="gaming", max_results=5, webhook_url="",
+                                       timeout=TIKTOK_TIMEOUT_SECONDS)
+    assert result.data.task_status == "completed"
+    assert len(result.data.results or []) == result.data.stats.results_count
+    assert result.data.pagination.has_next is False
+    resumed = client.tiktok_live_search.resume(result.data.task_id).result(limit=1)
+    assert len(resumed.data.results or []) <= 1
+
+
 def test_tiktok_live_search_rejects_unsupported_country(client):
     with pytest.raises(BadRequestError) as exc_info:
         client.submit_tiktok_live_search(query="gaming", country="cn")

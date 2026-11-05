@@ -64,8 +64,39 @@ def _finalize(job_type: str, resp: Any) -> Any:
         return models.TweetStatementResponse(
             status=resp.status, data=_completed_result(resp), usage=resp.usage
         )
-    # TikTok: the poll response itself is the (first page of the) result.
+    # TikTok: the poll response itself is the result (every page merged, or the page asked for).
     return resp
+
+
+# TikTok job type -> the list its pages fill.
+TIKTOK_ITEMS = {"tiktok_profile": "videos", "tiktok_search": "results", "tiktok_live_search": "results"}
+# The API's largest page.
+TIKTOK_PAGE_SIZE = 500
+
+
+def _wants_all_pages(job_type: str, params: Dict[str, Any]) -> bool:
+    """TikTok results come whole unless the caller asked for one page (``limit`` or ``cursor``)."""
+    return job_type in TIKTOK_ITEMS and params.get("limit") is None and params.get("cursor") is None
+
+
+def _merge_pages(job_type: str, first: Any, later_pages: Any) -> Any:
+    """Put every page's items into the first response, and mark its pagination as complete."""
+    key = TIKTOK_ITEMS[job_type]
+    items = list(getattr(first.data, key) or [])
+    for page in later_pages:
+        items.extend(getattr(page.data, key) or [])
+    setattr(first.data, key, items)
+    pagination = first.data.pagination
+    if pagination is not None:
+        pagination.limit = len(items)
+        pagination.has_next = False
+        pagination.next_cursor = None
+    return first
+
+
+def _next_cursor(resp: Any) -> Optional[str]:
+    pagination = resp.data.pagination
+    return pagination.next_cursor if pagination is not None else None
 
 
 class _PollClock:
@@ -218,7 +249,19 @@ class Job(_JobBase):
 
         Returns the same object as the matching blocking method, e.g. a
         :class:`~vidnavigator.models.TranscriptResponse` for a transcription.
+        TikTok jobs return every video / result / room, all pages merged;
+        pass ``limit`` (and ``cursor``) to get one page instead.
         """
+        if _wants_all_pages(self.job_type, params):
+            # Status polls ask for one item; the pages are read once the job completed.
+            self.wait(timeout=timeout, poll_interval=poll_interval, fast_start=fast_start, limit=1)
+            first = self.refresh(include_usage=include_usage, limit=TIKTOK_PAGE_SIZE)
+            pages = []
+            cursor = _next_cursor(first)
+            while cursor:
+                pages.append(self.refresh(limit=TIKTOK_PAGE_SIZE, cursor=cursor))
+                cursor = _next_cursor(pages[-1])
+            return self._store(_merge_pages(self.job_type, first, pages))
         resp = self.wait(
             timeout=timeout,
             include_usage=include_usage,
@@ -282,6 +325,15 @@ class AsyncJob(_JobBase):
         **params: Any,
     ) -> Any:
         """Wait for the job and return its result, raising if it failed. See :meth:`Job.result`."""
+        if _wants_all_pages(self.job_type, params):
+            await self.wait(timeout=timeout, poll_interval=poll_interval, fast_start=fast_start, limit=1)
+            first = await self.refresh(include_usage=include_usage, limit=TIKTOK_PAGE_SIZE)
+            pages = []
+            cursor = _next_cursor(first)
+            while cursor:
+                pages.append(await self.refresh(limit=TIKTOK_PAGE_SIZE, cursor=cursor))
+                cursor = _next_cursor(pages[-1])
+            return self._store(_merge_pages(self.job_type, first, pages))
         resp = await self.wait(
             timeout=timeout,
             include_usage=include_usage,

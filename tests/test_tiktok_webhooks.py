@@ -371,3 +371,86 @@ def test_live_search_resume_and_failure(client, no_sleep):
             handle.result()
     assert exc_info.value.error_code == "search_failed"
     assert req.call_args[0] == ("GET", "/tiktok/live/search/l1")
+
+
+# ---------------------------------------------------------------------------
+# Every page by default, and operation objects (parity with the JS SDK)
+# ---------------------------------------------------------------------------
+
+def _page(status, ids, next_cursor=None, **extra):
+    return _search(
+        status,
+        results=[{"id": i, "url": f"https://www.tiktok.com/@c/video/{i}"} for i in ids],
+        pagination={"limit": 500, "offset": 0, "total_items": 3, "has_next": next_cursor is not None,
+                    "has_prev": False, "next_cursor": next_cursor},
+        **extra,
+    )
+
+
+def test_search_tiktok_collects_every_page_by_default(client, no_sleep):
+    responses = [
+        _search_submit(),
+        _page("processing", []),
+        _page("completed", ["a"], next_cursor="c1"),
+        _page("completed", ["a", "b"], next_cursor="c1"),
+        _page("completed", ["c"]),
+    ]
+    with patch.object(client, "_request", side_effect=responses) as req:
+        resp = client.search_tiktok(query="ai tools", include_usage=True)
+    assert [r.id for r in resp.data.results] == ["a", "b", "c"]
+    assert resp.data.pagination.has_next is False and resp.data.pagination.next_cursor is None
+    assert resp.data.pagination.limit == 3
+    gets = [c for c in req.call_args_list if c[0][0] == "GET"]
+    # Status polls ask for one item; usage comes with the first full page only.
+    assert [c[1]["params"] for c in gets] == [
+        {"limit": 1},
+        {"limit": 1},
+        {"limit": 500, "include_usage": "true"},
+        {"limit": 500, "cursor": "c1"},
+    ]
+
+
+def test_explicit_limit_still_returns_one_page(client, no_sleep):
+    responses = [_search_submit(), _page("completed", ["a", "b"], next_cursor="c1")]
+    with patch.object(client, "_request", side_effect=responses) as req:
+        resp = client.search_tiktok(query="ai tools", limit=2)
+    assert [r.id for r in resp.data.results] == ["a", "b"]
+    assert resp.data.pagination.next_cursor == "c1"
+    assert req.call_args == (("GET", "/tiktok/search/s1"), {"params": {"limit": 2}})
+
+
+def test_profile_handle_result_collects_videos(client, no_sleep):
+    pages = [
+        _profile("completed", videos=[{"id": "1"}], pagination={"has_next": True, "next_cursor": "x"}),
+        _profile("completed", videos=[{"id": "1"}], pagination={"has_next": True, "next_cursor": "x"}),
+        _profile("completed", videos=[{"id": "2"}], pagination={"has_next": False, "next_cursor": None}),
+    ]
+    with patch.object(client, "_request", side_effect=pages):
+        resp = client.resume_job("tiktok_profile", "p1").result()
+    assert [v.id for v in resp.data.videos] == ["1", "2"]
+
+
+def test_operation_objects_match_the_methods(client, no_sleep):
+    expected = {
+        "transcribe": "transcribe", "extract_video": "extract_video", "tweet_statement": "tweet_statement",
+        "tiktok_profile": "tiktok_profile", "tiktok_search": "tiktok_search",
+        "tiktok_live_search": "tiktok_live_search",
+    }
+    for attr, job_type in expected.items():
+        op = getattr(client, attr)
+        assert callable(op) and callable(op.submit) and callable(op.resume), attr
+        assert op.job_type == job_type
+        assert repr(op) == f"Operation(job_type={job_type!r})"
+        resumed = op.resume("t1")
+        assert isinstance(resumed, Job) and resumed.job_type == job_type and resumed.task_id == "t1"
+
+    with patch.object(client, "_request", return_value=_search_submit()) as req:
+        handle = client.tiktok_search.submit(query="ai tools", country="fr")
+    assert isinstance(handle, Job) and handle.job_type == "tiktok_search" and handle.task_id == "s1"
+    assert req.call_args[1]["json_body"] == {"query": "ai tools", "country": "fr"}
+
+    responses = [_live_submit(), _live("completed", results=[LIVE_ROOM]), _live("completed", results=[LIVE_ROOM])]
+    with patch.object(client, "_request", side_effect=responses) as req:
+        resp = client.tiktok_live_search(query="gaming")
+    assert isinstance(resp, TikTokLiveSearchResponse) and resp.data.results[0].category == "Gaming"
+    assert req.call_args_list[0] == (("POST", "/tiktok/live/search"), {"json_body": {"query": "gaming"}})

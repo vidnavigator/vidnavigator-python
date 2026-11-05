@@ -8,6 +8,7 @@ import requests
 
 from .exceptions import VidNavigatorError
 from .jobs import DEFAULT_JOB_TIMEOUT, Job
+from .operations import Operation
 from . import _core, models
 from ._core import (  # noqa: F401  (re-exported for backwards compatibility)
     DEFAULT_BASE_URL,
@@ -48,6 +49,21 @@ class VidNavigatorClient:
         self.timeout = timeout
         self.session = session or requests.Session()
         self.session.headers.update(_core.default_headers(api_key))
+
+        # One object per background job, like the JavaScript SDK: call it to
+        # wait for the result, `.submit(...)` for a handle, `.resume(task_id)`.
+        self.transcribe = Operation("transcribe", self.transcribe_video, self.submit_transcribe_video,
+                                    self.resume_job)
+        self.extract_video = Operation("extract_video", self.extract_video_data,
+                                       self.submit_extract_video_data, self.resume_job)
+        self.tweet_statement = Operation("tweet_statement", self.get_tweet_statement,
+                                         self.submit_tweet_statement, self.resume_job)
+        self.tiktok_profile = Operation("tiktok_profile", self.scrape_tiktok_profile,
+                                        self.submit_tiktok_profile_scrape, self.resume_job)
+        self.tiktok_search = Operation("tiktok_search", self.search_tiktok, self.submit_tiktok_search,
+                                       self.resume_job)
+        self.tiktok_live_search = Operation("tiktok_live_search", self.search_tiktok_live,
+                                            self.submit_tiktok_live_search, self.resume_job)
 
     # ---------------------------------------------------------------------
     # Internal helpers
@@ -409,14 +425,15 @@ class VidNavigatorClient:
         min_likes: Optional[int] = None,
         max_likes: Optional[int] = None,
         webhook_url: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = None,
         include_usage: bool = False,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TikTokProfileResponse:
-        """Scrape a TikTok profile and wait for the first page of *limit* videos.
+        """Scrape a TikTok profile and wait for every matching video, all pages merged.
 
-        Page further with :meth:`get_tiktok_profile_scrape` using
-        ``response.data.task_id`` and ``response.data.pagination.next_cursor``.
+        Pass *limit* to get only the first page of that size, then page further
+        with :meth:`get_tiktok_profile_scrape` using ``response.data.task_id``
+        and ``response.data.pagination.next_cursor``.
         """
         job = self.submit_tiktok_profile_scrape(
             profile_url=profile_url,
@@ -513,14 +530,15 @@ class VidNavigatorClient:
         max_views: Optional[int] = None,
         country: Optional[str] = None,
         webhook_url: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = None,
         include_usage: bool = False,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TikTokSearchResponse:
-        """Run a TikTok keyword search and wait for the first page of *limit* results.
+        """Run a TikTok keyword search and wait for every result, all pages merged.
 
-        Page further with :meth:`get_tiktok_search`. See
-        :meth:`submit_tiktok_search` for the parameters.
+        Pass *limit* to get only the first page of that size, then page further
+        with :meth:`get_tiktok_search`. See :meth:`submit_tiktok_search` for the
+        parameters.
         """
         job = self.submit_tiktok_search(
             query=query,
@@ -599,14 +617,15 @@ class VidNavigatorClient:
         country: Optional[str] = None,
         include_stream_urls: Optional[bool] = None,
         webhook_url: Optional[str] = None,
-        limit: int = 50,
+        limit: Optional[int] = None,
         include_usage: bool = False,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TikTokLiveSearchResponse:
-        """Search TikTok LIVE rooms and wait for the first page of *limit* rooms.
+        """Search TikTok LIVE rooms and wait for every room, all pages merged.
 
-        Page further with :meth:`get_tiktok_live_search`. See
-        :meth:`submit_tiktok_live_search` for the parameters.
+        Pass *limit* to get only the first page of that size, then page further
+        with :meth:`get_tiktok_live_search`. See :meth:`submit_tiktok_live_search`
+        for the parameters.
         """
         job = self.submit_tiktok_live_search(
             query=query,

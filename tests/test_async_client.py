@@ -484,6 +484,30 @@ def test_search_tiktok_live_blocking(instant_sleep):
     assert dict(api.calls("GET")[-1].url.params) == {"limit": "7"}
 
 
+def test_operation_objects_collect_every_page(instant_sleep):
+    submit = {"status": "success", "data": {"task_id": "s1", "task_status": "processing"}}
+    page = lambda ids, cursor: tiktok_task(  # noqa: E731
+        "completed", task_id="s1", items_key="results",
+        results=[{"id": i} for i in ids], pagination={"has_next": cursor is not None, "next_cursor": cursor})
+    api = (Api().on("POST", "/v1/tiktok/search", (202, submit))
+           .on("GET", "/v1/tiktok/search/s1",
+               tiktok_task("processing", task_id="s1", items_key="results"),
+               page(["a"], "c1"), page(["a", "b"], "c1"), page(["c"], None)))
+
+    async def go():
+        async with make_client(api) as client:
+            assert client.tiktok_search.resume("s9").job_type == "tiktok_search"
+            job = await client.tiktok_search.submit(query="ai tools")
+            assert job.job_type == "tiktok_search"
+            return await job.result()
+
+    resp = run(go())
+    assert [r.id for r in resp.data.results] == ["a", "b", "c"]
+    assert resp.data.pagination.has_next is False
+    assert [dict(c.url.params) for c in api.calls("GET")] == [
+        {"limit": "1"}, {"limit": "1"}, {"limit": "500"}, {"limit": "500", "cursor": "c1"}]
+
+
 def test_job_failure_raises_from_error_object(instant_sleep):
     error = {"error": "unsupported_platform", "message": "No YouTube", "http_status": 400}
     api = (Api().on("POST", "/v1/transcribe/async", (202, accepted("transcribe")))
