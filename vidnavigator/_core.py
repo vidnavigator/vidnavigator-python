@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.2.0"
+USER_AGENT = "vidnavigator-python/2.3.0"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -364,6 +364,43 @@ def submit_tiktok_live_search(
     return _submit("tiktok_live_search", _json(
         "POST", "/tiktok/live/search", payload, models.TikTokLiveSearchSubmitResponse,
     ))
+
+
+# A room usually answers in 1-5 s, but up to ~30 s when the API has to open a
+# TikTok page, and two minutes at worst: the client's timeout is raised to this
+# for that call only.
+LIVE_ROOM_TIMEOUT = 120.0
+
+
+def get_tiktok_live_room(
+    *,
+    room_id: Optional[str] = None,
+    username: Optional[str] = None,
+    url: Optional[str] = None,
+    include_comments: Optional[bool] = None,
+    comments_limit: Optional[int] = None,
+    include_stream_urls: Optional[bool] = None,
+    include_usage: bool = False,
+) -> Request:
+    given = [name for name, value in (("room_id", room_id), ("username", username), ("url", url)) if value]
+    if len(given) != 1:
+        raise ValueError("Pass exactly one of room_id, username or url")
+    payload = _with_optional(
+        {},
+        # A string: room ids have 19 digits, more than a JavaScript number holds.
+        room_id=None if room_id is None else str(room_id),
+        username=username,
+        url=url,
+        include_comments=include_comments,
+        comments_limit=comments_limit,
+        include_stream_urls=include_stream_urls,
+    )
+    if include_usage:
+        payload["include_usage"] = True
+    return Request(
+        "POST", "/tiktok/live/room", {"json_body": payload, "min_timeout": LIVE_ROOM_TIMEOUT},
+        _model(models.TikTokLiveRoomResponse),
+    )
 
 
 def _tiktok_page(path: str, model_cls: Any, cursor: Optional[str], limit: int, include_usage: bool) -> Request:

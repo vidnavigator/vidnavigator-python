@@ -697,3 +697,104 @@ def test_health_check(client):
     assert isinstance(resp, HealthResponse)
     assert resp.status == "success"
     assert resp.endpoints[0].path == "/health"
+
+
+# ---------------------------------------------------------------------------
+# TikTok LIVE room (synchronous)
+# ---------------------------------------------------------------------------
+
+LIVE_ROOM_RAW = {
+    "status": "success",
+    "data": {
+        "room": {
+            "id": "7705498471838665494",
+            "title": "Night stream #fr",
+            "url": "https://www.tiktok.com/@streamer/live",
+            "status": "live",
+            "ended_at": None,
+            "share_url": "https://m.tiktok.com/share/live/7705498471838665494",
+            "started_at": "2026-11-07T16:00:00Z",
+            "author": {"unique_id": "streamer", "followers": "18867", "bio": "Live every night", "following": "9011"},
+            "stats": {"viewers": 936, "total_viewers": "4005", "new_followers": 12},
+            "hashtags": ["fr"],
+            "age_restricted": False,
+            "subscribers_only": False,
+            "chat_enabled": True,
+            "products": 2,
+        },
+        "comments": [{
+            "id": "3", "text": "hello", "language": "fr", "created_at": "2026-11-07T16:46:42.500Z",
+            "author": {"unique_id": "bob", "followers": 5},
+            "author_is_follower": True, "author_is_moderator": False, "author_is_subscriber": False,
+        }],
+        "pinned_comment": None,
+        "intro": "Welcome",
+        "top_viewers": [{"rank": 1, "score": 300, "user": {"unique_id": "bob"}}],
+    },
+    "usage": {"charges": [{"service_type": "residential_request", "quantity": 2.0, "credits": 0.01}],
+              "total_credits": 0.01},
+}
+
+
+def test_get_tiktok_live_room_with_comments(client):
+    from vidnavigator.models import TikTokLiveRoomResponse
+
+    with patch.object(client, "_request", return_value=LIVE_ROOM_RAW) as req:
+        resp = client.get_tiktok_live_room(room_id=7705498471838665494, include_comments=True,
+                                           comments_limit=10, include_usage=True)
+    assert isinstance(resp, TikTokLiveRoomResponse)
+    room = resp.data.room
+    assert room.is_live and room.ended_at is None
+    assert (room.stats.viewers, room.stats.total_viewers, room.stats.new_followers) == (936, 4005, 12)
+    assert (room.author.bio, room.author.following, room.author.followers) == ("Live every night", 9011, 18867)
+    assert (room.chat_enabled, room.subscribers_only, room.products) == (True, False, 2)
+    comment = resp.data.comments[0]
+    assert comment.created_at == datetime(2026, 11, 7, 16, 46, 42, 500000, tzinfo=timezone.utc)
+    assert comment.author.unique_id == "bob" and comment.author_is_follower is True
+    assert resp.data.top_viewers[0].user.unique_id == "bob"
+    assert resp.usage.charge_for("residential_request").quantity == 2.0
+    args, kw = req.call_args
+    assert args == ("POST", "/tiktok/live/room")
+    # The room id goes as a string: it has more digits than a JavaScript number holds.
+    assert kw["json_body"] == {"room_id": "7705498471838665494", "include_comments": True,
+                               "comments_limit": 10, "include_usage": True}
+    assert kw["min_timeout"] == 120.0
+
+
+def test_get_tiktok_live_room_by_username_without_comments(client):
+    raw = {"status": "success", "data": {"room": {**LIVE_ROOM_RAW["data"]["room"], "status": "ended",
+                                                  "ended_at": "2026-11-07T18:51:31Z"}}}
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.get_tiktok_live_room(username="@streamer", include_stream_urls=False)
+    assert not resp.data.room.is_live
+    assert resp.data.room.ended_at == datetime(2026, 11, 7, 18, 51, 31, tzinfo=timezone.utc)
+    assert resp.data.comments is None and resp.data.top_viewers is None
+    assert req.call_args[1]["json_body"] == {"username": "@streamer", "include_stream_urls": False}
+
+
+def test_get_tiktok_live_room_needs_exactly_one_target(client):
+    with patch.object(client, "_request") as req:
+        for kwargs in ({}, {"room_id": "1", "username": "a"}, {"username": "a", "url": "https://www.tiktok.com/@a/live"}):
+            with pytest.raises(ValueError):
+                client.get_tiktok_live_room(**kwargs)
+    req.assert_not_called()
+
+
+@pytest.mark.parametrize("configured, expected", [(30, 120.0), (300, 300)])
+def test_live_room_raises_the_timeout_never_lowers_it(configured, expected):
+    client = VidNavigatorClient(api_key="test_key", timeout=configured)
+
+    class Ok:
+        ok, status_code, reason = True, 200, "OK"
+
+        def __init__(self, payload):
+            self.payload = payload
+
+        def json(self):
+            return self.payload
+
+    with patch.object(client.session, "request", side_effect=[Ok(LIVE_ROOM_RAW), Ok(TRANSCRIPT_RAW)]) as send:
+        client.get_tiktok_live_room(url="https://www.tiktok.com/@streamer/live")
+        client.get_transcript(video_url="https://example.com/v")
+    assert send.call_args_list[0][1]["timeout"] == expected
+    assert send.call_args_list[1][1]["timeout"] == configured

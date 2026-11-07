@@ -13,7 +13,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 - [Installation](#installation) · [Authentication](#authentication) · [Quick start](#quick-start) · [Which method should I use?](#which-method-should-i-use)
 - **Online videos:** [Transcripts](#transcripts) · [AI analysis](#ai-analysis) · [Structured extraction](#structured-extraction) · [Tweet claim analysis](#tweet-claim-analysis)
 - **Long-running work:** [Background jobs](#background-jobs) · [Recipes](#recipes) · [Async client](#async-client) · [Webhooks](#webhooks)
-- **TikTok:** [Profile scraping](#tiktok-profile-scraping) · [Keyword search](#tiktok-keyword-search) · [LIVE search](#tiktok-live-search)
+- **TikTok:** [Profile scraping](#tiktok-profile-scraping) · [Keyword search](#tiktok-keyword-search) · [LIVE search](#tiktok-live-search) · [LIVE room](#tiktok-live-room)
 - **Your own files:** [Semantic search](#semantic-search) · [File uploads](#file-uploads) · [Namespaces](#namespaces)
 - **Reference:** [Per-call usage](#per-call-usage) · [Usage & billing](#usage--billing) · [Error handling](#error-handling) · [Configuration](#configuration) · [Upgrading from 1.x](#upgrading-from-1x)
 
@@ -127,6 +127,7 @@ print(resp.data)  # {"mood": "upbeat"}
 | List a TikTok profile's videos | `scrape_tiktok_profile` | when the job finishes |
 | Search TikTok by keyword | `search_tiktok` | when the job finishes |
 | Find TikTok LIVE rooms broadcasting now, with their stream URLs | `search_tiktok_live` | when the job finishes |
+| Check one TikTok LIVE room or streamer, with its latest comments | `get_tiktok_live_room` | immediately |
 | Find YouTube videos about a topic | `search_youtube` | immediately |
 | Work with your own audio/video files | `upload_file`, then `get_file`, `analyze_file`, `extract_file_data`, `search_files` | immediately |
 | Process **many** videos at once | the `submit_*` version of a job method | a job handle, right away |
@@ -997,6 +998,47 @@ Results keep TikTok's ranking. A keyword with no LIVE room in that country at th
 
 ---
 
+## TikTok LIVE Room
+
+`get_tiktok_live_room` returns one LIVE room right away (no job): by room id, by streamer, or by LIVE URL. Use it to check whether someone is live, to follow a room found by [LIVE search](#tiktok-live-search), or to read its latest comments.
+
+```python
+resp = client.get_tiktok_live_room(username="tiktok", include_comments=True)
+room = resp.data.room
+
+print(room.status, room.title, room.stats.viewers, room.stats.new_followers)
+if room.is_live:
+    for comment in resp.data.comments:
+        print(comment.created_at, comment.author.unique_id, comment.text)
+else:
+    print("ended at", room.ended_at)
+```
+
+| Parameter | Type | Description |
+|---|---|---|
+| `room_id` | `str` | A LIVE room id, e.g. the `id` of a LIVE search room |
+| `username` | `str` | The streamer, with or without `@`: their current LIVE, or their last one when they are offline |
+| `url` | `str` | `https://www.tiktok.com/@username/live`, the profile URL, or a room's `share_url` |
+| `include_comments` | `bool` | Also return the latest comments, the pinned comment, the intro and the top viewers. Default `False`. |
+| `comments_limit` | `int` | At most this many comments, 1-50 (default 50) |
+| `include_stream_urls` | `bool` | Stream URLs are returned by default; pass `False` to leave them out |
+| `include_usage` | `bool` | Add the `usage` block |
+
+Pass exactly one of `room_id`, `username` or `url`. The room (`TikTokLiveRoomDetail`) has the fields of a LIVE search room, plus:
+
+- `status` (`"live"` or `"ended"`, also `room.is_live`) and `ended_at`
+- `stats.viewers` (watching now), `stats.total_viewers` (since the start), `stats.new_followers` (gained during the LIVE)
+- `author.bio`, `author.following`
+- `share_url`, `chat_enabled`, `subscribers_only`, `age_restricted`, `products` (items on sale)
+
+With `include_comments=True`, `resp.data` also has `comments` (newest first; TikTok keeps only about the last 50 of a LIVE), `pinned_comment`, `intro` and `top_viewers`. A room that has ended has no comments.
+
+A room's likes, comment count and share count are not available here: [LIVE search](#tiktok-live-search) returns them. A room or account that does not exist raises `NotFoundError` (`error_code == "live_not_found"`). The call usually takes a few seconds; it may wait up to two minutes, whatever the client's `timeout`.
+
+Billing: 1 `residential_request` per room, 2 with `include_comments` (1 when the room has ended). Not billed when the room is not found.
+
+---
+
 ## Semantic Search
 
 ### Search YouTube
@@ -1258,6 +1300,10 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 2.3.0
+
+- **TikTok LIVE room:** [`get_tiktok_live_room`](#tiktok-live-room) returns one room right away, by room id, streamer or LIVE URL: live or ended, viewers, new followers, the streamer's bio, and with `include_comments=True` its latest comments, pinned comment, intro and top viewers.
 
 ## What's new in 2.2.0
 

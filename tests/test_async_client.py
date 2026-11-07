@@ -625,3 +625,29 @@ def test_polling_does_not_block_the_event_loop():
     # The ticker kept running after the first poll, while the job slept 50 ms before the second.
     assert polls_seen_by_ticker == [1, 1, 1]
     assert len(api.calls("GET")) == 2
+
+
+def test_get_tiktok_live_room_async():
+    from vidnavigator.models import TikTokLiveRoomResponse
+
+    room = {"id": "7705498471838665494", "status": "live", "stats": {"viewers": "12", "new_followers": 1},
+            "author": {"unique_id": "streamer", "following": 3}}
+    api = (Api().on("POST", "/v1/tiktok/live/room", {"status": "success", "data": {"room": room}})
+           .on("POST", "/v1/tiktok/live/room", (404, {"status": "error", "error": "live_not_found",
+                                                      "message": "No TikTok LIVE room found."})))
+
+    async def go():
+        async with make_client(api) as client:
+            found = await client.get_tiktok_live_room(url="https://www.tiktok.com/@streamer/live")
+            with pytest.raises(NotFoundError) as exc_info:
+                await client.get_tiktok_live_room(room_id="123", include_comments=True)
+            return found, exc_info.value
+
+    found, error = run(go())
+    assert isinstance(found, TikTokLiveRoomResponse) and found.data.room.is_live
+    assert found.data.room.stats.viewers == 12 and found.data.room.author.following == 3
+    assert error.error_code == "live_not_found"
+    assert [body(r) for r in api.calls("POST")] == [
+        {"url": "https://www.tiktok.com/@streamer/live"},
+        {"room_id": "123", "include_comments": True},
+    ]

@@ -679,6 +679,89 @@ class TikTokLiveRoom(BaseModel):
     stream_urls: Optional[TikTokLiveStreamUrls] = Field(None, alias="stream_urls")
 
 
+class TikTokLiveRoomAuthor(TikTokLiveAuthor):
+    """The streamer of a room fetched with ``get_tiktok_live_room``."""
+
+    bio: Optional[str] = None
+    # Accounts the streamer follows.
+    following: Optional[int] = None
+
+    @_pre_validator("followers", "following")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokLiveRoomStats(BaseModel):
+    """A single room's counters. Likes, comments and shares come with LIVE search only."""
+
+    # Watching now (0 once the LIVE has ended).
+    viewers: Optional[int] = None
+    # Since the LIVE started.
+    total_viewers: Optional[int] = Field(None, alias="total_viewers")
+    # Followers the streamer gained during this LIVE.
+    new_followers: Optional[int] = Field(None, alias="new_followers")
+
+    @_pre_validator("viewers", "total_viewers", "new_followers")
+    @classmethod
+    def _coerce_int_fields(cls, v):
+        return _coerce_optional_int(v)
+
+
+class TikTokLiveRoomDetail(TikTokLiveRoom):
+    """One LIVE room, as ``get_tiktok_live_room`` returns it."""
+
+    author: Optional[TikTokLiveRoomAuthor] = None
+    stats: Optional[TikTokLiveRoomStats] = None
+    # ``"live"`` while broadcasting, ``"ended"`` once finished.
+    status: Optional[str] = None
+    ended_at: Optional[datetime] = Field(None, alias="ended_at")
+    # The room's share link; it can be passed back as ``url``.
+    share_url: Optional[str] = Field(None, alias="share_url")
+    age_restricted: Optional[bool] = Field(None, alias="age_restricted")
+    subscribers_only: Optional[bool] = Field(None, alias="subscribers_only")
+    chat_enabled: Optional[bool] = Field(None, alias="chat_enabled")
+    # Products on sale in the LIVE.
+    products: Optional[int] = None
+
+    @property
+    def is_live(self) -> bool:
+        return self.status == "live"
+
+
+class TikTokLiveComment(BaseModel):
+    """A comment posted in a LIVE's chat."""
+
+    id: Optional[str] = None
+    text: Optional[str] = None
+    # ISO 639-1 code TikTok detected, or None.
+    language: Optional[str] = None
+    created_at: Optional[datetime] = Field(None, alias="created_at")
+    author: Optional[TikTokLiveAuthor] = None
+    author_is_follower: Optional[bool] = Field(None, alias="author_is_follower")
+    author_is_moderator: Optional[bool] = Field(None, alias="author_is_moderator")
+    # A paying subscriber of the streamer.
+    author_is_subscriber: Optional[bool] = Field(None, alias="author_is_subscriber")
+
+
+class TikTokLiveTopViewer(BaseModel):
+    """One of a LIVE's top viewers, ranked by the gifts they sent."""
+
+    rank: Optional[int] = None
+    score: Optional[int] = None
+    user: Optional[TikTokLiveAuthor] = None
+
+
+class TikTokLiveRoomData(BaseModel):
+    room: TikTokLiveRoomDetail
+    # The four below are present only with ``include_comments=True``.
+    # Latest comments, newest first (TikTok keeps about the last 50).
+    comments: Optional[List[TikTokLiveComment]] = None
+    pinned_comment: Optional[TikTokLiveComment] = Field(None, alias="pinned_comment")
+    intro: Optional[str] = None
+    top_viewers: Optional[List[TikTokLiveTopViewer]] = Field(None, alias="top_viewers")
+
+
 class TikTokLiveSearchStats(BaseModel):
     pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
     # Distinct rooms TikTok returned, those past ``max_results`` included.
@@ -920,6 +1003,12 @@ class TikTokLiveSearchSubmitResponse(BaseModel):
 class TikTokLiveSearchResponse(BaseModel):
     status: str
     data: TikTokLiveSearchTask
+    usage: Optional[UsageBlock] = None
+
+
+class TikTokLiveRoomResponse(BaseModel):
+    status: str
+    data: TikTokLiveRoomData
     usage: Optional[UsageBlock] = None
 
 

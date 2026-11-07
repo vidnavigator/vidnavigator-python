@@ -84,7 +84,12 @@ class AsyncVidNavigatorClient:
         json_body: Optional[Dict[str, Any]] = None,
         data: Optional[Dict[str, Any]] = None,
         files: Any = None,
+        min_timeout: Optional[float] = None,
     ) -> Any:
+        timeout = self.timeout
+        if min_timeout is not None and isinstance(timeout, (int, float)):
+            # A call known to run long raises the timeout, never lowers it.
+            timeout = max(timeout, min_timeout)
         try:
             response = await self.http_client.request(
                 method,
@@ -94,7 +99,7 @@ class AsyncVidNavigatorClient:
                 data=data,
                 files=files,
                 headers=self._headers,
-                timeout=self.timeout,
+                timeout=timeout,
             )
         except httpx.HTTPError as exc:
             raise VidNavigatorError(f"Request failed: {exc}") from exc
@@ -511,6 +516,28 @@ class AsyncVidNavigatorClient:
         """Fetch a TikTok LIVE search task once and retrieve a page of rooms."""
         return await self._call(_core.get_tiktok_live_search(
             task_id, cursor=cursor, limit=limit, include_usage=include_usage,
+        ))
+
+    async def get_tiktok_live_room(
+        self,
+        *,
+        room_id: Optional[str] = None,
+        username: Optional[str] = None,
+        url: Optional[str] = None,
+        include_comments: Optional[bool] = None,
+        comments_limit: Optional[int] = None,
+        include_stream_urls: Optional[bool] = None,
+        include_usage: bool = False,
+    ) -> models.TikTokLiveRoomResponse:
+        """Get one TikTok LIVE room, synchronously. See :meth:`VidNavigatorClient.get_tiktok_live_room`."""
+        return await self._call(_core.get_tiktok_live_room(
+            room_id=room_id,
+            username=username,
+            url=url,
+            include_comments=include_comments,
+            comments_limit=comments_limit,
+            include_stream_urls=include_stream_urls,
+            include_usage=include_usage,
         ))
 
     # Search -----------------------------------------------------------------------

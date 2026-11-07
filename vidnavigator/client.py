@@ -78,8 +78,13 @@ class VidNavigatorClient:
         data: Optional[Dict[str, Any]] = None,
         files: Any = None,
         stream: bool = False,
+        min_timeout: Optional[float] = None,
     ) -> Any:
         url = f"{self.base_url}{path}"
+        timeout = self.timeout
+        if min_timeout is not None and isinstance(timeout, (int, float)):
+            # A call known to run long raises the timeout, never lowers it.
+            timeout = max(timeout, min_timeout)
         try:
             response = self.session.request(
                 method,
@@ -88,7 +93,7 @@ class VidNavigatorClient:
                 json=json_body,
                 data=data,
                 files=files,
-                timeout=self.timeout,
+                timeout=timeout,
                 stream=stream,
             )
         except requests.RequestException as exc:
@@ -651,6 +656,54 @@ class VidNavigatorClient:
         """
         return self._call(_core.get_tiktok_live_search(
             task_id, cursor=cursor, limit=limit, include_usage=include_usage,
+        ))
+
+    def get_tiktok_live_room(
+        self,
+        *,
+        room_id: Optional[str] = None,
+        username: Optional[str] = None,
+        url: Optional[str] = None,
+        include_comments: Optional[bool] = None,
+        comments_limit: Optional[int] = None,
+        include_stream_urls: Optional[bool] = None,
+        include_usage: bool = False,
+    ) -> models.TikTokLiveRoomResponse:
+        """Get one TikTok LIVE room, synchronously. Pass exactly one of the first three.
+
+        Parameters
+        ----------
+        room_id:
+            A LIVE room ID, e.g. the ``id`` of a :meth:`search_tiktok_live` room.
+        username:
+            The streamer, with or without ``@``: their current LIVE, or their
+            last one when they are offline (``room.status == "ended"``).
+        url:
+            ``https://www.tiktok.com/@username/live``, the profile URL, or a
+            room's ``share_url``.
+        include_comments:
+            Also return the latest comments (up to 50, newest first), the
+            pinned comment, the intro and the top viewers. Bills 2
+            ``residential_request`` instead of 1. An ended room has none.
+        comments_limit:
+            At most this many comments (1-50, default 50).
+        include_stream_urls:
+            The room's playback URLs are returned by default; ``False`` leaves
+            them out.
+
+        The room has no likes, comment count or share count: TikTok gives those
+        to LIVE search only. A room or account that does not exist raises
+        :class:`~vidnavigator.exceptions.NotFoundError` and is not billed. The
+        call waits up to two minutes, whatever the client's ``timeout``.
+        """
+        return self._call(_core.get_tiktok_live_room(
+            room_id=room_id,
+            username=username,
+            url=url,
+            include_comments=include_comments,
+            comments_limit=comments_limit,
+            include_stream_urls=include_stream_urls,
+            include_usage=include_usage,
         ))
 
     # Search -----------------------------------------------------------------------

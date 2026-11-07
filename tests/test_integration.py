@@ -386,6 +386,33 @@ def test_tiktok_live_search_rejects_unsupported_country(client):
     assert exc_info.value.error_code == "invalid_country"
 
 
+def test_tiktok_live_room_by_id_with_comments(client):
+    rooms = client.search_tiktok_live(query="gaming", max_results=5, webhook_url="",
+                                      timeout=TIKTOK_TIMEOUT_SECONDS).data.results or []
+    assert rooms, "no LIVE room for 'gaming' in the US"
+    busiest = max(rooms, key=lambda r: (r.stats.viewers or 0))
+
+    plain = client.get_tiktok_live_room(room_id=busiest.id, include_usage=True)
+    room = plain.data.room
+    assert room.id == busiest.id and room.status in ("live", "ended")
+    assert plain.data.comments is None
+    assert plain.usage.charge_for("residential_request").quantity == 1.0
+
+    chat = client.get_tiktok_live_room(room_id=busiest.id, include_comments=True, comments_limit=10,
+                                       include_usage=True)
+    assert isinstance(chat.data.comments, list) and len(chat.data.comments) <= 10
+    for comment in chat.data.comments:
+        assert comment.text and comment.author and comment.author.unique_id
+    expected = 2.0 if chat.data.room.is_live else 1.0
+    assert chat.usage.charge_for("residential_request").quantity == expected
+
+
+def test_tiktok_live_room_unknown_is_not_found(client):
+    with pytest.raises(NotFoundError) as exc_info:
+        client.get_tiktok_live_room(room_id="123")
+    assert exc_info.value.error_code == "live_not_found"
+
+
 # -- Background jobs -------------------------------------------------------
 
 def test_extract_video_data_blocking_runs_as_job(client):

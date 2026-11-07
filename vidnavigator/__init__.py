@@ -1,6 +1,6 @@
 """VidNavigator Developer API Python client."""
 
-__version__ = "2.2.0"
+__version__ = "2.3.0"
 
 from .client import VidNavigatorClient
 from .async_client import AsyncVidNavigatorClient
