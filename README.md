@@ -957,7 +957,7 @@ Without `sort_by`, results come back newest first. If you set `after_datetime` b
 
 With `limit`, read further pages with `get_tiktok_search(task_id, cursor=...)`, exactly as for [profiles](#read-the-remaining-pages). Completed searches may include a `download_url` with the full JSON result.
 
-Billing: 1 `residential_request` per 30 videos TikTok returned (`result.data.stats.videos_fetched`, including the ones your filters dropped), minimum 1 per search.
+Billing: 1 `residential_request` per 30 results returned (`result.data.stats.results_count`), minimum 1 per search and 1 per 5 TikTok pages read (`stats.pages_fetched`).
 
 ---
 
@@ -994,7 +994,7 @@ Each room (`TikTokLiveRoom`) has the same `id`, `url`, `author` and `stats` fiel
 - `hashtags`: the `#tags` of the title; `category`: the LIVE's category on TikTok (`"Gaming"`); `game_tags`
 - `stream_urls`: `flv` and `hls` URLs keyed by quality (`origin`, `uhd`, `hd`, `sd`, `ld`), `default_quality`, an `audio_only` stream, and `expires_at`. The URLs play while the LIVE is on.
 
-Results keep TikTok's ranking. A keyword with no LIVE room in that country at that moment completes with zero results. Billing: 1 `residential_request` per 30 rooms TikTok returned (`result.data.stats.rooms_fetched`), minimum 1 per search.
+Results keep TikTok's ranking. A keyword with no LIVE room in that country at that moment completes with zero results. Billing: 1 `residential_request` per 30 rooms returned (`result.data.stats.results_count`), minimum 1 per search.
 
 ---
 

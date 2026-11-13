@@ -570,8 +570,9 @@ class TikTokSearchFilters(BaseModel):
 
 class TikTokSearchStatsSummary(BaseModel):
     pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
-    # Distinct videos TikTok returned, filtered-out ones included. Billed at
-    # one ``residential_request`` per 30, minimum 1 per search.
+    # Distinct videos TikTok returned, filtered-out ones included. For information:
+    # billing follows ``results_count`` (one ``residential_request`` per 30, minimum 1
+    # per search) and ``pages_fetched`` (at least one per 5).
     videos_fetched: Optional[int] = Field(None, alias="videos_fetched")
     results_count: Optional[int] = Field(None, alias="results_count")
     next_search_cursor: Optional[int] = Field(None, alias="next_search_cursor")
@@ -764,8 +765,9 @@ class TikTokLiveRoomData(BaseModel):
 
 class TikTokLiveSearchStats(BaseModel):
     pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
-    # Distinct rooms TikTok returned, those past ``max_results`` included.
-    # Billed at one ``residential_request`` per 30, minimum 1 per search.
+    # Distinct rooms TikTok returned, those past ``max_results`` included. For
+    # information: billing follows ``results_count`` (one ``residential_request``
+    # per 30, minimum 1 per search).
     rooms_fetched: Optional[int] = Field(None, alias="rooms_fetched")
     results_count: Optional[int] = Field(None, alias="results_count")
     has_more: Optional[bool] = Field(None, alias="has_more")
