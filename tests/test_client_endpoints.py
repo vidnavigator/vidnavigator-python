@@ -335,6 +335,33 @@ def test_search_youtube(client):
     assert resp.usage.charge_for("residential_request").quantity == 2
 
 
+def test_search_youtube_sends_every_filter(client):
+    """Each filter reaches the API as given, the `recency` focus included."""
+    with patch.object(client, "_request", return_value=SEARCH_VIDEO_RAW) as req:
+        client.search_youtube(
+            query="test",
+            focus="recency",
+            start_year=2024,
+            end_year=2025,
+            duration=300,
+        )
+    body = req.call_args.kwargs["json_body"]
+    assert body["focus"] == "recency"
+    assert body["start_year"] == 2024
+    assert body["end_year"] == 2025
+    assert body["duration"] == 300
+
+
+def test_search_youtube_leaves_unset_filters_out(client):
+    """Without filters, only the defaults are sent: no empty year or duration."""
+    with patch.object(client, "_request", return_value=SEARCH_VIDEO_RAW) as req:
+        client.search_youtube(query="test")
+    body = req.call_args.kwargs["json_body"]
+    assert body["focus"] == "relevance"
+    for name in ("start_year", "end_year", "duration", "max_results"):
+        assert name not in body
+
+
 def test_search_videos_is_deprecated_alias(client):
     with patch.object(client, "_request", return_value=SEARCH_VIDEO_RAW) as req:
         with pytest.warns(DeprecationWarning):

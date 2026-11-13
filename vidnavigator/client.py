@@ -723,8 +723,17 @@ class VidNavigatorClient:
 
         Parameters
         ----------
+        start_year, end_year:
+            Only videos published in or after ``start_year``, and in or before
+            ``end_year``.
         focus:
-            One of ``"relevance"`` (default), ``"popularity"``, or ``"brevity"``.
+            What comes first among the videos that match the query:
+            ``"relevance"`` (default, the best matches), ``"recency"`` (the
+            most recent), ``"popularity"`` (the most viewed) or ``"brevity"``
+            (the shortest). With a value other than ``"relevance"``,
+            ``explanation`` is empty.
+        duration:
+            Maximum duration in seconds: longer videos are left out.
         max_results:
             Maximum number of candidate videos to analyse and return. Each
             candidate incurs one ``residential_request``, so lowering this caps

@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.3.0"
+USER_AGENT = "vidnavigator-python/2.3.1"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]

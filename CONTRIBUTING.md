@@ -164,7 +164,7 @@ password = pypi-YOUR_TOKEN_HERE
 1. **Update the version** in three places:
    - `pyproject.toml` (`version = "X.Y.Z"`)
    - `vidnavigator/__init__.py` (`__version__ = "X.Y.Z"`)
-   - `vidnavigator/client.py` (`USER_AGENT = "vidnavigator-python/X.Y.Z"`)
+   - `vidnavigator/_core.py` (`USER_AGENT = "vidnavigator-python/X.Y.Z"`)
 
 2. **Run the full test suite:**
    ```bash

@@ -553,7 +553,12 @@ class AsyncVidNavigatorClient:
         max_results: Optional[int] = None,
         include_usage: bool = False,
     ) -> models.VideoSearchResponse:
-        """Search YouTube for videos with AI analysis and ranking."""
+        """Search YouTube for videos with AI analysis and ranking.
+
+        ``focus`` is ``"relevance"`` (default), ``"recency"``, ``"popularity"``
+        or ``"brevity"``; ``duration`` is a maximum length in seconds. See
+        :meth:`VidNavigatorClient.search_youtube`.
+        """
         return await self._call(_core.search_youtube(
             query=query,
             use_enhanced_search=use_enhanced_search,

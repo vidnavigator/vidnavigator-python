@@ -138,6 +138,43 @@ def test_search_youtube(client):
     assert first.title
 
 
+def _published_years(results):
+    """Publication years of the results that carry a full date (not "3 weeks ago")."""
+    years = [str(r.published_date or "")[:4] for r in results]
+    return [int(y) for y in years if y.isdigit()]
+
+
+def test_search_youtube_duration_and_years(client):
+    """`duration` is a maximum length and the years bound the publication date."""
+    resp = client.search_youtube(
+        query="how transformers work",
+        use_enhanced_search=False,
+        duration=300,
+        start_year=2021,
+        end_year=2023,
+        max_results=4,
+    )
+    assert resp.status == "success"
+    results = resp.data.results
+    assert len(results) > 0
+    assert all(r.duration <= 300 for r in results if r.duration)
+    years = _published_years(results)
+    assert years and all(2021 <= year <= 2023 for year in years)
+
+
+def test_search_youtube_recency(client):
+    """`focus="recency"` returns recent videos: published this year or the last."""
+    resp = client.search_youtube(
+        query="how transformers work",
+        use_enhanced_search=False,
+        focus="recency",
+        max_results=4,
+    )
+    assert resp.status == "success"
+    years = _published_years(resp.data.results)
+    assert years and min(years) >= datetime.now().year - 1
+
+
 # -- Namespaces (create -> rename -> delete) --------------------------------
 
 def test_namespace_lifecycle(client):

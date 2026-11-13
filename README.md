@@ -1064,11 +1064,23 @@ for r in results.data.results:
 |---|---|---|
 | `query` | `str` | Natural-language search query |
 | `use_enhanced_search` | `bool` | AI-enhanced query (default: `True`) |
-| `start_year` / `end_year` | `int` | Filter by publish date |
-| `focus` | `str` | `"relevance"` (default), `"popularity"`, or `"brevity"` |
-| `duration` | `int` | Filter by video duration in seconds |
+| `start_year` / `end_year` | `int` | Only videos published in or after `start_year`, and in or before `end_year` |
+| `focus` | `str` | What comes first among the matching videos: `"relevance"` (default, the best matches), `"recency"` (the most recent), `"popularity"` (the most viewed) or `"brevity"` (the shortest) |
+| `duration` | `int` | Maximum duration in seconds: longer videos are left out |
 | `max_results` | `int` | Max candidate videos to analyze and return; each one is billed, so this caps cost (defaults to your plan ceiling) |
 | `include_usage` | `bool` | Attach a per-call `usage` block to the response |
+
+The filters combine. For example, the most recent videos of five minutes at most, published since 2025:
+
+```python
+results = client.search_youtube(
+    query="how to train a neural network from scratch",
+    focus="recency",
+    duration=300,
+    start_year=2025,
+    max_results=5,
+)
+```
 
 > `search_videos` still works as a deprecated alias for `search_youtube`.
 
@@ -1300,6 +1312,10 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 2.3.1
+
+- **YouTube search:** `focus="recency"` puts the most recent videos first, next to `"relevance"`, `"popularity"` and `"brevity"`. The `start_year`, `end_year` and `duration` filters are described precisely in [Search YouTube](#search-youtube).
 
 ## What's new in 2.3.0
 

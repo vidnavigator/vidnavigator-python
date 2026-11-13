@@ -290,6 +290,29 @@ def test_get_transcript_body_and_parse():
     }
 
 
+def test_search_youtube_sends_every_filter():
+    """The async client sends the same filters as the sync one, `recency` included."""
+    api = Api().on("POST", "/v1/youtube/search",
+                   {"status": "success", "data": {"results": [], "query": "q", "total_found": 0}})
+
+    async def go():
+        async with make_client(api) as client:
+            return await client.search_youtube(
+                query="q", focus="recency", start_year=2024, end_year=2025, duration=300)
+
+    resp = run(go())
+    assert resp.data.total_found == 0
+    assert body(api.requests[0]) == {
+        "query": "q",
+        "use_enhanced_search": True,
+        "focus": "recency",
+        "include_usage": False,
+        "start_year": 2024,
+        "end_year": 2025,
+        "duration": 300,
+    }
+
+
 def test_get_files_query_params():
     raw = {"status": "success", "data": {"files": [], "total_count": 0, "limit": 5, "offset": 10, "has_more": False}}
     api = Api().on("GET", "/v1/files", raw)
