@@ -320,7 +320,7 @@ ExtractionTokenUsage = UsageBlock
 
 
 # ---------------------------------------------------------------------------
-# Async jobs (shared by /transcribe, /extract/video, /tweet/statement and TikTok)
+# Async jobs (shared by /transcribe, /watch, /extract/video, /tweet/statement and TikTok)
 # ---------------------------------------------------------------------------
 
 
@@ -837,6 +837,44 @@ class TranscriptResponse(BaseModel):
     usage: Optional[UsageBlock] = None
 
 
+class VideoScene(BaseModel):
+    """What a video shows between ``start`` and ``end`` (seconds from its beginning)."""
+
+    start: float
+    end: float
+    description: str = ""
+    # Text readable on screen (captions, titles, signs), verbatim; empty when there is none.
+    on_screen_text: str = Field("", alias="on_screen_text")
+
+
+class WatchTranscriptError(BaseModel):
+    """Why a watched video came back without a transcript (e.g. ``transcript_not_available``)."""
+
+    error: Optional[str] = None
+    message: Optional[str] = None
+
+
+class WatchData(BaseModel):
+    """A watched video: its metadata, what it says and what it shows.
+
+    ``transcript`` is ``None`` when the request set ``include_transcript=False``
+    and empty when the video has none; ``transcript_error`` then says why. The
+    scenes are returned in both cases.
+    """
+
+    video_info: VideoInfo = Field(alias="video_info")
+    transcript: Optional[TranscriptOutput] = None
+    transcript_error: Optional[WatchTranscriptError] = Field(None, alias="transcript_error")
+    scenes: List[VideoScene] = Field(default_factory=list)
+    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
+
+
+class WatchResponse(BaseModel):
+    status: str
+    data: WatchData
+    usage: Optional[UsageBlock] = None
+
+
 class TranscribeAllVideosData(BaseModel):
     carousel_info: CarouselInfo = Field(alias="carousel_info")
     videos: List[CarouselVideoResult]
@@ -1062,9 +1100,21 @@ class TweetStatementJob(_AsyncJobBase):
     result: Optional[TweetStatementData] = None
 
 
+class WatchJob(_AsyncJobBase):
+    """Body of ``GET /watch/{task_id}``; ``result`` mirrors the ``data`` block of ``POST /watch``."""
+
+    result: Optional[WatchData] = None
+
+
 class TranscribeJobResponse(BaseModel):
     status: str
     data: TranscribeJob
+    usage: Optional[UsageBlock] = None
+
+
+class WatchJobResponse(BaseModel):
+    status: str
+    data: WatchJob
     usage: Optional[UsageBlock] = None
 
 

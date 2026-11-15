@@ -24,6 +24,7 @@ vidnavigator-python/
     test_async_jobs.py         # Job handles, polling schedule, timeouts, blocking calls
     test_async_client.py       # AsyncVidNavigatorClient + AsyncJob (httpx MockTransport), sync/async parity
     test_tiktok_webhooks.py    # TikTok jobs, webhook_url pass-through, new filters
+    test_watch.py              # Watch: submit, job, blocking call, sync and async clients
     test_webhooks.py           # Webhook signature verification tests
     test_error_mapping.py      # HTTP status -> exception mapping tests
     test_extract_endpoints.py  # Extraction endpoint unit tests
@@ -94,6 +95,7 @@ Some integration tests need extra inputs and are skipped unless these are set:
 |---|---|
 | `VIDNAVIGATOR_TIKTOK_PROFILE_URL` | TikTok profile scrape lifecycle (e.g. `https://www.tiktok.com/@tiktok`) |
 | `VIDNAVIGATOR_TRANSCRIBE_URL` | Async transcription success path (a short non-YouTube video, e.g. a TikTok URL) |
+| `VIDNAVIGATOR_WATCH_URL` | Watch success path (a short video on any supported platform) |
 | `VIDNAVIGATOR_TWEET_ID` | Tweet claim analysis test (e.g. `1585841080431321088`) |
 | `VIDNAVIGATOR_BASE_URL` | Run against a local or staging API (local backend: `http://localhost:5001/v1`) |
 | `VIDNAVIGATOR_PLATFORM_TESTS=1` | `tests/test_platforms.py`: captions and speech-to-text on every supported platform (billed) |

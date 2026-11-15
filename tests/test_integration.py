@@ -47,6 +47,7 @@ TEST_TIKTOK_PROFILE_URL = os.getenv("VIDNAVIGATOR_TIKTOK_PROFILE_URL")
 TEST_TWEET_ID = os.getenv("VIDNAVIGATOR_TWEET_ID")
 # A non-YouTube video that speech-to-text can process (e.g. a TikTok or Instagram reel).
 TEST_TRANSCRIBE_URL = os.getenv("VIDNAVIGATOR_TRANSCRIBE_URL")
+TEST_WATCH_URL = os.getenv("VIDNAVIGATOR_WATCH_URL")
 TIKTOK_TIMEOUT_SECONDS = int(os.getenv("VIDNAVIGATOR_TIKTOK_TIMEOUT_SECONDS", "180"))
 ASYNC_JOB_TIMEOUT_SECONDS = int(os.getenv("VIDNAVIGATOR_ASYNC_TIMEOUT_SECONDS", "300"))
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
@@ -554,9 +555,47 @@ def test_transcribe_video_blocking(client):
         assert resp.usage.total_credits is not None
 
 
+@pytest.mark.skipif(not TEST_WATCH_URL, reason="VIDNAVIGATOR_WATCH_URL not set")
+def test_watch_video_blocking(client):
+    resp = client.watch_video(
+        video_url=TEST_WATCH_URL,
+        include_usage=True,
+        timeout=ASYNC_JOB_TIMEOUT_SECONDS,
+    )
+    assert resp.data.video_info is not None
+    assert resp.data.scenes, "a watched video has at least one scene"
+    for scene in resp.data.scenes:
+        assert scene.end >= scene.start >= 0
+        assert scene.description
+        assert isinstance(scene.on_screen_text, str)
+    assert resp.data.frames_analyzed and resp.data.frames_analyzed > 0
+    # The transcript is there by default: segments, or empty with the reason.
+    assert isinstance(resp.data.transcript, list)
+    if not resp.data.transcript:
+        assert resp.data.transcript_error is not None
+    assert resp.usage is not None
+
+
+@pytest.mark.skipif(not TEST_WATCH_URL, reason="VIDNAVIGATOR_WATCH_URL not set")
+def test_watch_scenes_only_through_a_handle(client):
+    handle = client.watch.submit(video_url=TEST_WATCH_URL, detail="low", include_transcript=False)
+    assert handle.job_type == "watch" and handle.task_id
+    resumed = client.watch.resume(handle.task_id)
+    resp = resumed.result(timeout=ASYNC_JOB_TIMEOUT_SECONDS)
+    assert resp.data.scenes
+    assert resp.data.transcript is None
+    done = resumed.last_response
+    assert done.data.is_completed and done.data.request["video_url"] == TEST_WATCH_URL
+
+
+def test_watch_rejects_an_unknown_detail(client):
+    with pytest.raises(BadRequestError):
+        client.submit_watch_video(video_url=TEST_VIDEO_URL, detail="extreme")
+
+
 @pytest.mark.parametrize(
     "job_type",
-    ["transcribe", "extract_video", "tweet_statement", "tiktok_live_search"],
+    ["transcribe", "watch", "extract_video", "tweet_statement", "tiktok_live_search"],
 )
 def test_unknown_task_raises_not_found(client, job_type):
     with pytest.raises(NotFoundError) as exc_info:

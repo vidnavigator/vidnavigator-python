@@ -35,6 +35,7 @@ pytestmark = pytest.mark.skipif(not _api_key, reason="VIDNAVIGATOR_API_KEY not s
 YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
 SCHEMA = {"mood": {"type": "String", "description": "One word describing the mood"}}
 TRANSCRIBE_URL = os.getenv("VIDNAVIGATOR_TRANSCRIBE_URL")
+WATCH_URL = os.getenv("VIDNAVIGATOR_WATCH_URL")
 TWEET_ID = os.getenv("VIDNAVIGATOR_TWEET_ID")
 JOB_TIMEOUT = int(os.getenv("VIDNAVIGATOR_ASYNC_TIMEOUT_SECONDS", "300"))
 TEST_VIDEO_FILE = Path(__file__).resolve().parent / "fixtures" / "video-test.mp4"
@@ -194,6 +195,17 @@ def test_transcribe_video():
 
     resp = run(go)
     assert isinstance(resp.data.transcript, str) and resp.data.transcript
+    assert resp.usage is not None
+
+
+@pytest.mark.skipif(not WATCH_URL, reason="VIDNAVIGATOR_WATCH_URL not set")
+def test_watch_video():
+    async def go(client):
+        return await client.watch_video(video_url=WATCH_URL, include_usage=True, timeout=JOB_TIMEOUT)
+
+    resp = run(go)
+    assert resp.data.scenes and resp.data.frames_analyzed > 0
+    assert isinstance(resp.data.transcript, list)
     assert resp.usage is not None
 
 

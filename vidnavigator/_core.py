@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.3.1"
+USER_AGENT = "vidnavigator-python/2.4.0"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -176,6 +176,26 @@ def submit_transcribe_video(
         webhook_url=webhook_url,
     )
     return _submit("transcribe", _json("POST", "/transcribe/async", payload, models.AsyncJobSubmitResponse))
+
+
+# ---------------------------------------------------------------------------
+# Watch
+# ---------------------------------------------------------------------------
+
+def submit_watch_video(
+    *,
+    video_url: str,
+    detail: Optional[str] = None,
+    include_transcript: bool = True,
+    transcript_text: bool = False,
+    webhook_url: Optional[str] = None,
+) -> Request:
+    payload = _with_optional(
+        {"video_url": video_url, "include_transcript": include_transcript, "transcript_text": transcript_text},
+        detail=detail,
+        webhook_url=webhook_url,
+    )
+    return _submit("watch", _json("POST", "/watch/async", payload, models.AsyncJobSubmitResponse))
 
 
 # ---------------------------------------------------------------------------

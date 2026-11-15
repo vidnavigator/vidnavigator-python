@@ -54,6 +54,7 @@ class VidNavigatorClient:
         # wait for the result, `.submit(...)` for a handle, `.resume(task_id)`.
         self.transcribe = Operation("transcribe", self.transcribe_video, self.submit_transcribe_video,
                                     self.resume_job)
+        self.watch = Operation("watch", self.watch_video, self.submit_watch_video, self.resume_job)
         self.extract_video = Operation("extract_video", self.extract_video_data,
                                        self.submit_extract_video_data, self.resume_job)
         self.tweet_statement = Operation("tweet_statement", self.get_tweet_statement,
@@ -126,7 +127,7 @@ class VidNavigatorClient:
     def resume_job(self, job_type: str, task_id: str) -> Job:
         """Rebuild the handle of a job submitted earlier from its ``task_id``.
 
-        *job_type* is one of ``"transcribe"``, ``"extract_video"``,
+        *job_type* is one of ``"transcribe"``, ``"watch"``, ``"extract_video"``,
         ``"tweet_statement"``, ``"tiktok_profile"``, ``"tiktok_search"`` or
         ``"tiktok_live_search"``.
         Use it after an :class:`~vidnavigator.JobTimeoutError`, a restart,
@@ -247,6 +248,75 @@ class VidNavigatorClient:
             video_url=video_url,
             transcript_text=transcript_text,
             all_videos=all_videos,
+            webhook_url=webhook_url,
+        )
+        return job.result(timeout=timeout, include_usage=include_usage)
+
+    # Watch ------------------------------------------------------------------------
+    def submit_watch_video(
+        self,
+        *,
+        video_url: str,
+        detail: Optional[str] = None,
+        include_transcript: bool = True,
+        transcript_text: bool = False,
+        webhook_url: Optional[str] = None,
+    ) -> Job:
+        """Start watching a video and return the job's handle immediately.
+
+        Call ``.result()`` on the handle to wait for a
+        :class:`~vidnavigator.models.WatchResponse`, or ``.status()`` to check
+        on it. Same parameters as :meth:`watch_video`.
+        """
+        return self._submit(_core.submit_watch_video(
+            video_url=video_url,
+            detail=detail,
+            include_transcript=include_transcript,
+            transcript_text=transcript_text,
+            webhook_url=webhook_url,
+        ))
+
+    def watch_video(
+        self,
+        *,
+        video_url: str,
+        detail: Optional[str] = None,
+        include_transcript: bool = True,
+        transcript_text: bool = False,
+        include_usage: bool = False,
+        webhook_url: Optional[str] = None,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+    ) -> models.WatchResponse:
+        """Read what a video shows, next to what it says, and wait for the result.
+
+        ``.data.scenes`` lists the scenes in order: for each one its ``start``
+        and ``end`` in seconds, a ``description`` of the picture and the
+        ``on_screen_text``. ``.data.transcript`` holds what is said. Works with
+        every platform :meth:`get_transcript` and :meth:`transcribe_video`
+        support.
+
+        Parameters
+        ----------
+        detail:
+            How closely the picture is followed: ``"low"``, ``"auto"`` (the
+            default) or ``"high"``.
+        include_transcript:
+            Set to False for the scenes only. With the default, a video without
+            a transcript is not an error: ``.data.transcript`` is empty and
+            ``.data.transcript_error`` says why.
+        transcript_text:
+            Return the transcript as one string instead of segments.
+
+        Runs as a background job (``POST /watch/async`` then polling), so long
+        videos are not subject to the synchronous endpoint's duration limit.
+        Raises :class:`~vidnavigator.JobTimeoutError` (carrying the
+        ``task_id``) if the job is still running after *timeout* seconds.
+        """
+        job = self.submit_watch_video(
+            video_url=video_url,
+            detail=detail,
+            include_transcript=include_transcript,
+            transcript_text=transcript_text,
             webhook_url=webhook_url,
         )
         return job.result(timeout=timeout, include_usage=include_usage)
