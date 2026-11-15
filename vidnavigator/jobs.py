@@ -1,6 +1,6 @@
 """Handles for VidNavigator background jobs.
 
-Every speech-to-text and TikTok operation runs as a background job: submitting
+Every speech-to-text, watch and TikTok operation runs as a background job: submitting
 returns a ``task_id`` immediately and the result is read by polling. A
 :class:`Job` wraps one such job for :class:`~vidnavigator.VidNavigatorClient`;
 an :class:`AsyncJob` does the same, with awaitable methods, for
@@ -29,6 +29,7 @@ TERMINAL_STATUSES = ("completed", "failed")
 # job_type -> (poll route prefix, poll response model)
 JOB_ROUTES = {
     "transcribe": ("/transcribe", models.TranscribeJobResponse),
+    "watch": ("/watch", models.WatchJobResponse),
     "extract_video": ("/extract/video", models.ExtractVideoJobResponse),
     "tweet_statement": ("/tweet/statement", models.TweetStatementJobResponse),
     "tiktok_profile": ("/tiktok/profile", models.TikTokProfileResponse),
@@ -53,6 +54,8 @@ def _finalize(job_type: str, resp: Any) -> Any:
                 status=resp.status, data=result, usage=resp.usage
             )
         return models.TranscriptResponse(status=resp.status, data=result, usage=resp.usage)
+    if job_type == "watch":
+        return models.WatchResponse(status=resp.status, data=_completed_result(resp), usage=resp.usage)
     if job_type == "extract_video":
         return models.ExtractionApiResponse(
             status=resp.status,
@@ -248,7 +251,8 @@ class Job(_JobBase):
         """Wait for the job and return its result, raising if it failed.
 
         Returns the same object as the matching blocking method, e.g. a
-        :class:`~vidnavigator.models.TranscriptResponse` for a transcription.
+        :class:`~vidnavigator.models.TranscriptResponse` for a transcription or a
+        :class:`~vidnavigator.models.WatchResponse` for a watched video.
         TikTok jobs return every video / result / room, all pages merged;
         pass ``limit`` (and ``cursor``) to get one page instead.
         """

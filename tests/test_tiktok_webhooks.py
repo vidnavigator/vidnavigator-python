@@ -432,7 +432,8 @@ def test_profile_handle_result_collects_videos(client, no_sleep):
 
 def test_operation_objects_match_the_methods(client, no_sleep):
     expected = {
-        "transcribe": "transcribe", "extract_video": "extract_video", "tweet_statement": "tweet_statement",
+        "transcribe": "transcribe", "watch": "watch", "extract_video": "extract_video",
+        "tweet_statement": "tweet_statement",
         "tiktok_profile": "tiktok_profile", "tiktok_search": "tiktok_search",
         "tiktok_live_search": "tiktok_live_search",
     }

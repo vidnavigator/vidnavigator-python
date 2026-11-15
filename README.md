@@ -11,7 +11,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 ## Contents
 
 - [Installation](#installation) · [Authentication](#authentication) · [Quick start](#quick-start) · [Which method should I use?](#which-method-should-i-use)
-- **Online videos:** [Transcripts](#transcripts) · [AI analysis](#ai-analysis) · [Structured extraction](#structured-extraction) · [Tweet claim analysis](#tweet-claim-analysis)
+- **Online videos:** [Transcripts](#transcripts) · [Watch](#watch) · [AI analysis](#ai-analysis) · [Structured extraction](#structured-extraction) · [Tweet claim analysis](#tweet-claim-analysis)
 - **Long-running work:** [Background jobs](#background-jobs) · [Recipes](#recipes) · [Async client](#async-client) · [Webhooks](#webhooks)
 - **TikTok:** [Profile scraping](#tiktok-profile-scraping) · [Keyword search](#tiktok-keyword-search) · [LIVE search](#tiktok-live-search) · [LIVE room](#tiktok-live-room)
 - **Your own files:** [Semantic search](#semantic-search) · [File uploads](#file-uploads) · [Namespaces](#namespaces)
@@ -24,6 +24,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Capability | Online Videos | Uploaded Files |
 |---|:---:|:---:|
 | Transcripts (segments with timestamps or plain text) | Yes | Yes |
+| Scenes: what a video shows, with the text on screen | Yes | -- |
 | AI analysis (summary, people, places, key subjects, Q&A) | Yes | Yes |
 | Structured data extraction (your custom schema) | Yes | Yes |
 | Semantic search across content | Yes (YouTube) | Yes |
@@ -35,21 +36,21 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 
 ## Supported Platforms
 
-| Platform | Transcript | Transcribe (speech-to-text) | Carousel |
-|----------|:----------:|:---------------------------:|:--------:|
-| YouTube | Yes | - | - |
-| Instagram Reels | - | Yes | Yes |
-| Instagram Posts | - | Yes | Yes (`all_videos`) |
-| TikTok | Yes | Yes | - |
-| X / Twitter | Yes | Yes | - |
-| Vimeo | Yes | Yes | - |
-| Facebook | Yes | Yes | - |
-| Dailymotion | Yes | Yes | - |
-| Loom | Yes | Yes | - |
-| Snapchat | Yes, when Snapchat has a transcript | Yes | Yes (highlights: `img_index`, `all_videos`) |
-| Uploaded files | Yes | Yes | - |
+| Platform | Transcript | Transcribe (speech-to-text) | Watch (scenes) | Carousel |
+|----------|:----------:|:---------------------------:|:--------------:|:--------:|
+| YouTube | Yes | - | Yes | - |
+| Instagram Reels | - | Yes | Yes | Yes |
+| Instagram Posts | - | Yes | Yes | Yes (`all_videos`) |
+| TikTok | Yes | Yes | Yes | - |
+| X / Twitter | Yes | Yes | Yes | - |
+| Vimeo | Yes | Yes | Yes | - |
+| Facebook | Yes | Yes | Yes | - |
+| Dailymotion | Yes | Yes | Yes | - |
+| Loom | Yes | Yes | Yes | - |
+| Snapchat | Yes, when Snapchat has a transcript | Yes | Yes | Yes (highlights: `img_index`, `all_videos`) |
+| Uploaded files | Yes | Yes | - | - |
 
-> **Transcript** = fast extraction of the platform's own captions, via `get_transcript`. **Transcribe** = speech-to-text by AI models, via `transcribe_video`. Use it when captions are unavailable.
+> **Transcript** = fast extraction of the platform's own captions, via `get_transcript`. **Transcribe** = speech-to-text by AI models, via `transcribe_video`. Use it when captions are unavailable. **Watch** = what the video shows, scene by scene, next to its transcript, via `watch_video`.
 
 **Supported upload formats:** mp4, webm, mov, avi, wmv, flv, mkv, m4a, mp3, mpeg, mpga, wav.
 
@@ -111,6 +112,11 @@ resp = client.extract_video_data(
     schema={"mood": {"type": "String", "description": "Overall mood in one word"}},
 )
 print(resp.data)  # {"mood": "upbeat"}
+
+# 4. What a video shows, scene by scene, next to what it says
+resp = client.watch_video(video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+for scene in resp.data.scenes:
+    print(scene.start, scene.end, scene.description, scene.on_screen_text)
 ```
 
 ---
@@ -121,6 +127,7 @@ print(resp.data)  # {"mood": "upbeat"}
 |---|---|---|
 | Get the captions of a video (fast, cheap) | `get_transcript` | immediately |
 | Transcribe audio when there are no captions (Instagram, TikTok, ...) | `transcribe_video` | when the job finishes |
+| See what a video shows, scene by scene, with its transcript | `watch_video` | when the job finishes |
 | Summarize a video or ask a question about it | `analyze_video` | immediately |
 | Pull specific fields out of a video into a `dict` | `extract_video_data` | when the job finishes |
 | Analyze the claim made in a tweet | `get_tweet_statement` | when the job finishes |
@@ -228,6 +235,63 @@ def best_transcript(url):
     except (NotFoundError, BadRequestError):  # no captions, or a platform without captions
         return client.transcribe_video(video_url=url, transcript_text=True).data.transcript
 ```
+
+---
+
+## Watch
+
+`watch_video` reads what a video **shows**, next to what it says. The result holds the transcript and a list of scenes: for each one, when it starts and ends, a description of the picture, and the text readable on screen. It works with every platform `get_transcript` and `transcribe_video` support, and runs as a [background job](#background-jobs).
+
+```python
+resp = client.watch_video(video_url="https://www.tiktok.com/@nasa/video/7300000000000000000")
+
+for scene in resp.data.scenes:
+    print(f"[{scene.start:.0f}s - {scene.end:.0f}s] {scene.description}")
+    if scene.on_screen_text:
+        print(f"    on screen: {scene.on_screen_text}")
+# [4s - 12s] A presenter stands in front of a world map and points at Europe.
+#     on screen: BREAKING NEWS
+
+for segment in resp.data.transcript or []:
+    print(f"[{segment.start:.1f}s] {segment.text}")
+
+print(resp.data.frames_analyzed)  # number of frames that were analyzed
+```
+
+The transcript comes from the platform's captions when it has them, and from speech-to-text otherwise. A video without speech is not an error: `transcript` is empty, `transcript_error` says why, and the scenes are returned. The same goes for a YouTube video without captions.
+
+```python
+resp = client.watch_video(video_url=url)
+if resp.data.transcript_error:
+    print(resp.data.transcript_error.error)  # e.g. "transcript_not_available"
+print(len(resp.data.scenes), "scenes")
+```
+
+`watch_video` parameters:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `video_url` | `str` | URL of the video (`?img_index=N` selects one video of an Instagram carousel or a Snapchat highlight) |
+| `detail` | `str` | How closely the picture is followed: `"low"`, `"auto"` (the default) or `"high"`. The number of frames depends on the video at every level: few on a fixed shot, many on a fast-cut clip. A higher level analyzes more frames when the picture changes often. |
+| `include_transcript` | `bool` | Default `True`. `False` returns the scenes only (`transcript` is `None`). |
+| `transcript_text` | `bool` | Return the transcript as a single string instead of segments |
+| `include_usage` | `bool` | Attach a `usage` block to the result; the frames are its `frame_analysis` charge |
+| `webhook_url` | `str` | Optional; see [Webhooks](#webhooks) |
+| `timeout` | `float` | Seconds to wait for the job (default 3600; `None` waits indefinitely). See [Timeouts](#timeouts-never-lose-the-task_id). |
+
+To start it without waiting, use the handle, as for any background job:
+
+```python
+job = client.watch.submit(video_url=url, detail="high")   # or client.submit_watch_video(...)
+print(job.task_id)
+
+resp = job.result(include_usage=True)                     # waits if needed
+print(resp.usage.charge_for("frame_analysis").quantity)   # frames charged
+
+job = client.watch.resume(saved_task_id)                  # the same handle, later
+```
+
+Errors worth handling: `NotFoundError` with `error_code == "frames_not_available"` (a live stream, or a clip of a few seconds, has no picture to read) and `BadRequestError` with `error_code == "video_too_long"` (videos longer than 2 hours are not accepted, except on YouTube).
 
 ---
 
@@ -408,13 +472,14 @@ Videos attached to the tweet (or to the tweet it quotes) are transcribed in full
 
 ## Background Jobs
 
-Speech-to-text and TikTok operations run as **background jobs** on the API: submitting one returns a `task_id` immediately, and the result is read by polling. The work happens on VidNavigator's servers, not in your process. The SDK only uses these job endpoints, so media of any length works without special handling.
+Speech-to-text, watch and TikTok operations run as **background jobs** on the API: submitting one returns a `task_id` immediately, and the result is read by polling. The work happens on VidNavigator's servers, not in your process. The SDK only uses these job endpoints, so media of any length works without special handling.
 
 Each job operation comes in two shapes:
 
 | Operation | Blocking: wait and return the result | Non-blocking: return a job handle |
 |---|---|---|
 | Speech-to-text | `transcribe_video(...)` | `submit_transcribe_video(...)` |
+| Watch (scenes and transcript) | `watch_video(...)` | `submit_watch_video(...)` |
 | Structured extraction | `extract_video_data(...)` | `submit_extract_video_data(...)` |
 | Tweet claim analysis | `get_tweet_statement(...)` | `submit_tweet_statement(...)` |
 | TikTok profile scrape | `scrape_tiktok_profile(...)` | `submit_tiktok_profile_scrape(...)` |
@@ -433,7 +498,7 @@ job = client.tiktok_search.submit(query="grève", country="fr")  # returns a Job
 job = client.tiktok_search.resume(saved_task_id)                # same handle, later
 ```
 
-The objects are `client.transcribe`, `client.extract_video`, `client.tweet_statement`, `client.tiktok_profile`, `client.tiktok_search` and `client.tiktok_live_search`. They take the same parameters as the methods in the table above, and the async client has the same ones (`await client.tiktok_search(...)`).
+The objects are `client.transcribe`, `client.watch`, `client.extract_video`, `client.tweet_statement`, `client.tiktok_profile`, `client.tiktok_search` and `client.tiktok_live_search`. They take the same parameters as the methods in the table above, and the async client has the same ones (`await client.tiktok_search(...)`).
 
 ### Blocking: one call, one result
 
@@ -461,7 +526,7 @@ resp = job.result()  # waits if needed, then returns the same TranscriptResponse
 | Member | Description |
 |---|---|
 | `task_id` | The job's id. Keep it; see [Timeouts](#timeouts-never-lose-the-task_id). |
-| `job_type` | `"transcribe"`, `"extract_video"`, `"tweet_statement"`, `"tiktok_profile"`, `"tiktok_search"` or `"tiktok_live_search"` |
+| `job_type` | `"transcribe"`, `"watch"`, `"extract_video"`, `"tweet_statement"`, `"tiktok_profile"`, `"tiktok_search"` or `"tiktok_live_search"` |
 | `status()` | Polls once and returns the `task_status` (`"processing"`, `"completed"` or `"failed"`) |
 | `done()` | Polls once; `True` when the job is `completed` or `failed` |
 | `result(...)` | Waits, then returns the same object as the blocking method; raises if the job failed |
@@ -544,6 +609,7 @@ Some errors happen before a job exists. No task is created, so there is nothing 
 | Operation | Returned by the blocking method and by `result()` |
 |---|---|
 | Transcribe | `TranscriptResponse` (`data.video_info`, `data.transcript`), or `TranscribeAllVideosResponse` with `all_videos=True` |
+| Watch | `WatchResponse` (`data.video_info`, `data.transcript`, `data.scenes`, `data.frames_analyzed`) |
 | Extract | `ExtractionApiResponse` (`data` is a `dict` matching your schema) |
 | Tweet | `TweetStatementResponse` (`data.final_statement`, `data.detailed_analysis`, ...) |
 | TikTok profile / search / LIVE search | `TikTokProfileResponse` / `TikTokSearchResponse` / `TikTokLiveSearchResponse`, with every video / result / room (all pages merged), or one page when you pass `limit` |
@@ -846,6 +912,7 @@ def vidnavigator_webhook():
 | Event types | Sent when |
 |---|---|
 | `transcribe.completed` / `transcribe.failed` | A speech-to-text job finishes |
+| `watch.completed` / `watch.failed` | A watch job finishes |
 | `extract_video.completed` / `extract_video.failed` | An extraction job finishes |
 | `tweet_statement.completed` / `tweet_statement.failed` | A tweet analysis finishes |
 | `tiktok_profile.completed` / `tiktok_profile.failed` | A profile scrape finishes |
@@ -1188,7 +1255,7 @@ client.delete_namespace("ns_abc123")
 
 Pass `include_usage=True` to see exactly which meters a call charged, how many credits were deducted, and (for AI features) how many LLM tokens were used.
 
-It is supported by `get_transcript`, `transcribe_video`, `analyze_video`, `analyze_file`, `extract_video_data`, `extract_file_data`, `search_youtube`, `search_files`, `get_tweet_statement`, `scrape_tiktok_profile`, `search_tiktok`, `get_tiktok_profile_scrape`, `get_tiktok_search`, and `job.result(include_usage=True)`. For background jobs, usage appears once the job is `completed`; failed jobs have all their charges reverted.
+It is supported by `get_transcript`, `transcribe_video`, `watch_video`, `analyze_video`, `analyze_file`, `extract_video_data`, `extract_file_data`, `search_youtube`, `search_files`, `get_tweet_statement`, `scrape_tiktok_profile`, `search_tiktok`, `get_tiktok_profile_scrape`, `get_tiktok_search`, and `job.result(include_usage=True)`. For background jobs, usage appears once the job is `completed`; failed jobs have all their charges reverted.
 
 ```python
 resp = client.search_youtube(query="react best practices", include_usage=True)
@@ -1214,7 +1281,7 @@ if usage:
 | `analysis_tokens` | The LLM token counts (`prompt_tokens`, `completion_tokens`, `total_tokens`) |
 | `charge_for(service_type)` | The charge entry for one meter, e.g. `usage.charge_for("transcription_hour")` |
 
-Meters: `standard_request`, `residential_request`, `transcription_hour`, `analysis_request`, `search_request` and `scene_analysis_hour`.
+Meters: `standard_request`, `residential_request`, `transcription_hour`, `frame_analysis`, `analysis_request`, `search_request` and `scene_analysis_hour`.
 
 ---
 
@@ -1312,6 +1379,10 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 2.4.0
+
+- **Watch:** [`watch_video`](#watch) / `client.watch` reads what a video shows, next to what it says: a list of scenes (`start`, `end`, `description`, `on_screen_text`) and the transcript, in one result. `detail` sets how closely the picture is followed, `include_transcript=False` returns the scenes only. Runs as a background job like `transcribe_video`, with `submit_watch_video`, `resume_job("watch", task_id)` and the `watch.completed` / `watch.failed` webhook events.
 
 ## What's new in 2.3.1
 

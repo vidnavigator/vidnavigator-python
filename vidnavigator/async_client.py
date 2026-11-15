@@ -61,6 +61,7 @@ class AsyncVidNavigatorClient:
         # `await client.tiktok_search.submit(...)`, `client.tiktok_search.resume(task_id)`.
         self.transcribe = Operation("transcribe", self.transcribe_video, self.submit_transcribe_video,
                                     self.resume_job)
+        self.watch = Operation("watch", self.watch_video, self.submit_watch_video, self.resume_job)
         self.extract_video = Operation("extract_video", self.extract_video_data,
                                        self.submit_extract_video_data, self.resume_job)
         self.tweet_statement = Operation("tweet_statement", self.get_tweet_statement,
@@ -181,6 +182,49 @@ class AsyncVidNavigatorClient:
             video_url=video_url,
             transcript_text=transcript_text,
             all_videos=all_videos,
+            webhook_url=webhook_url,
+        )
+        return await job.result(timeout=timeout, include_usage=include_usage)
+
+    # Watch ------------------------------------------------------------------------
+    async def submit_watch_video(
+        self,
+        *,
+        video_url: str,
+        detail: Optional[str] = None,
+        include_transcript: bool = True,
+        transcript_text: bool = False,
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start watching a video and return the job's handle immediately."""
+        return await self._submit(_core.submit_watch_video(
+            video_url=video_url,
+            detail=detail,
+            include_transcript=include_transcript,
+            transcript_text=transcript_text,
+            webhook_url=webhook_url,
+        ))
+
+    async def watch_video(
+        self,
+        *,
+        video_url: str,
+        detail: Optional[str] = None,
+        include_transcript: bool = True,
+        transcript_text: bool = False,
+        include_usage: bool = False,
+        webhook_url: Optional[str] = None,
+        timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
+    ) -> models.WatchResponse:
+        """Read what a video shows, next to what it says, and wait for the result.
+
+        See :meth:`VidNavigatorClient.watch_video`.
+        """
+        job = await self.submit_watch_video(
+            video_url=video_url,
+            detail=detail,
+            include_transcript=include_transcript,
+            transcript_text=transcript_text,
             webhook_url=webhook_url,
         )
         return await job.result(timeout=timeout, include_usage=include_usage)
