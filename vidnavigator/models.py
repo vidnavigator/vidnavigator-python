@@ -63,6 +63,13 @@ class NamespaceRef(BaseModel):
     name: Optional[str] = None
 
 
+class ScenesError(BaseModel):
+    """Why the scenes asked for are not there (e.g. ``frames_not_available``: the file or video has no picture to read)."""
+
+    error: Optional[str] = None
+    message: Optional[str] = None
+
+
 class FileInfo(BaseModel):
     id: Optional[str] = None
     name: Optional[str] = None
@@ -77,6 +84,11 @@ class FileInfo(BaseModel):
     error_message: Optional[str] = Field(None, alias="error_message")
     namespace_ids: Optional[List[str]] = Field(None, alias="namespace_ids")
     namespaces: Optional[List[NamespaceRef]] = None
+    # Where the scene analysis of the file stands: "none" (never asked for),
+    # "processing", "completed" (the scenes are returned by get_file) or
+    # "failed" (scenes_error says why).
+    scenes_status: Optional[str] = Field(None, alias="scenes_status")
+    scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
 
 
 class PersonPlaceSubject(BaseModel):
@@ -887,10 +899,23 @@ class TranscribeAllVideosResponse(BaseModel):
 
 
 class AnalysisData(BaseModel):
+    """An analysis: the summary and, with a query, the answer.
+
+    The last four fields belong to ``include_scenes=True``. ``scenes`` is then
+    what the video or file shows and ``frames_analyzed`` the number of frames
+    read for it; ``scenes`` stays ``None`` when the scenes were not asked for.
+    When one of the two sources is missing the analysis is made from the other:
+    ``scenes_error`` or ``transcript_error`` says which, and why.
+    """
+
     video_info: Optional[VideoInfo] = Field(None, alias="video_info")
     file_info: Optional[FileInfo] = Field(None, alias="file_info")
     transcript: Optional[TranscriptOutput] = None
     transcript_analysis: AnalysisResult = Field(alias="transcript_analysis")
+    transcript_error: Optional[WatchTranscriptError] = Field(None, alias="transcript_error")
+    scenes: Optional[List[VideoScene]] = None
+    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
+    scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
 
 
 class AnalysisResponse(BaseModel):
@@ -939,13 +964,31 @@ class FilesListResponse(BaseModel):
 
 
 class FileResponseData(BaseModel):
+    """A file: its details, its transcript and, once ``file_info.scenes_status`` is ``"completed"``, its scenes."""
+
     file_info: FileInfo = Field(alias="file_info")
     transcript: Optional[TranscriptOutput] = None
+    scenes: Optional[List[VideoScene]] = None
+    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
 
 
 class FileResponse(BaseModel):
     status: str
     data: FileResponseData
+
+
+class FileScenesData(BaseModel):
+    """Where the scene analysis of a file stands after ``analyze_file_scenes``."""
+
+    file_id: Optional[str] = Field(None, alias="file_id")
+    # "processing" (started, or already running) or "completed" (the scenes were already there).
+    scenes_status: Optional[str] = Field(None, alias="scenes_status")
+    message: Optional[str] = None
+
+
+class FileScenesResponse(BaseModel):
+    status: str
+    data: FileScenesData
 
 
 class NamespaceListResponse(BaseModel):
@@ -959,10 +1002,16 @@ class NamespaceResponse(BaseModel):
 
 
 class ExtractionApiResponse(BaseModel):
+    """Extracted fields in ``data``. With ``include_scenes=True``, ``frames_analyzed`` is the number of
+    frames read; ``scenes_error`` or ``transcript_error`` is set when one of the two sources was missing."""
+
     status: str
     data: Dict[str, Any]
     video_info: Optional[VideoInfo] = Field(None, alias="video_info")
     file_info: Optional[FileInfo] = Field(None, alias="file_info")
+    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
+    scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
+    transcript_error: Optional[WatchTranscriptError] = Field(None, alias="transcript_error")
     usage: Optional[UsageBlock] = None
 
 
@@ -1092,6 +1141,16 @@ class ExtractVideoJob(_AsyncJobBase):
 
     result: Optional[Dict[str, Any]] = None
     video_info: Optional[VideoInfo] = Field(None, alias="video_info")
+    # With include_scenes: the frames read, and what was missing if one of the two sources was.
+    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
+    scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
+    transcript_error: Optional[WatchTranscriptError] = Field(None, alias="transcript_error")
+
+
+class AnalyzeVideoJob(_AsyncJobBase):
+    """Body of ``GET /analyze/video/{task_id}``; ``result`` mirrors the ``data`` block of ``POST /analyze/video``."""
+
+    result: Optional[AnalysisData] = None
 
 
 class TweetStatementJob(_AsyncJobBase):
@@ -1121,6 +1180,12 @@ class WatchJobResponse(BaseModel):
 class ExtractVideoJobResponse(BaseModel):
     status: str
     data: ExtractVideoJob
+    usage: Optional[UsageBlock] = None
+
+
+class AnalyzeVideoJobResponse(BaseModel):
+    status: str
+    data: AnalyzeVideoJob
     usage: Optional[UsageBlock] = None
 
 
@@ -1240,6 +1305,8 @@ class UsageDetails(BaseModel):
     search_request: Optional[ActivityCount] = None
     analysis_request: Optional[ActivityCount] = None
     transcription_hour: Optional[ActivityCount] = None
+    # Frames analyzed by watch_video and by include_scenes.
+    frame_analysis: Optional[ActivityCount] = None
     video_transcripts: Optional[ActivityCount] = None
     youtube_transcripts: Optional[ActivityCount] = None
     video_searches: Optional[ActivityCount] = None

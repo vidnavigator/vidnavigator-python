@@ -1,6 +1,6 @@
 """VidNavigator Developer API Python client."""
 
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 from .client import VidNavigatorClient
 from .async_client import AsyncVidNavigatorClient
@@ -16,6 +16,7 @@ from .exceptions import (
     BadRequestError,
     GeoRestrictedError,
     StorageQuotaExceededError,
+    ScenesNotAvailableError,
     SystemOverloadError,
     ServerError,
     JobTimeoutError,
@@ -38,6 +39,7 @@ __all__ = [
     "BadRequestError",
     "GeoRestrictedError",
     "StorageQuotaExceededError",
+    "ScenesNotAvailableError",
     "SystemOverloadError",
     "ServerError",
     "JobTimeoutError",
