@@ -129,6 +129,7 @@ for scene in resp.data.scenes:
 | Transcribe audio when there are no captions (Instagram, TikTok, ...) | `transcribe_video` | when the job finishes |
 | See what a video shows, scene by scene, with its transcript | `watch_video` | when the job finishes |
 | Summarize a video or ask a question about it | `analyze_video` | immediately |
+| Answer from what a video shows as well (text on screen, little or no speech) | `analyze_video(..., include_scenes=True)` | immediately, or `submit_analyze_video` for a long video |
 | Pull specific fields out of a video into a `dict` | `extract_video_data` | when the job finishes |
 | Analyze the claim made in a tweet | `get_tweet_statement` | when the job finishes |
 | List a TikTok profile's videos | `scrape_tiktok_profile` | when the job finishes |
@@ -326,6 +327,37 @@ for subject in analysis.key_subjects or []:
 
 `query` is optional. Without it you get the summary, people, places and key subjects. Pass `transcript_text=True` to also receive the transcript as one string.
 
+### Use what the video shows
+
+By default the analysis reads what is said. With `include_scenes=True` it also reads what the video **shows**: its scenes, with the text readable on screen. Ask for it when the answer may be on screen rather than spoken (the quantities of a recipe, a price, a slide, a caption), or when the video has little or no speech.
+
+```python
+resp = client.analyze_video(
+    video_url="https://www.dailymotion.com/video/x84243e",
+    query="What are the ingredients and their quantities?",
+    include_scenes=True,
+)
+
+print(resp.data.transcript_analysis.query_answer.answer)
+# "Shredded cooked chicken 500 g; mayonnaise 300 g; requeijão 250 g; ..."
+
+print(resp.data.frames_analyzed)  # 30
+for scene in resp.data.scenes or []:
+    print(f"[{scene.start:.0f}s] {scene.description} | on screen: {scene.on_screen_text}")
+```
+
+`resp.data.scenes` holds the same scenes as [`watch_video`](#watch). When the video has no transcript, or no picture to read, the analysis is made from the other source and `resp.data.transcript_error` or `resp.data.scenes_error` says why.
+
+The scenes are billed per frame analyzed, on top of the analysis: 1 credit per 1,000 frames, with at least 334 frames per hour of video.
+
+For a long video, run the same analysis as a [background job](#background-jobs), which has no duration limit:
+
+```python
+job = client.submit_analyze_video(video_url=url, query="What is shown?", include_scenes=True)
+resp = job.result(include_usage=True)        # an AnalysisResponse, as above
+# later, or from another process: client.resume_job("analyze_video", job.task_id).result()
+```
+
 ### Analyze an uploaded file
 
 ```python
@@ -335,6 +367,8 @@ resp = client.analyze_file(
 )
 print(resp.data.transcript_analysis.summary)
 ```
+
+`include_scenes=True` works here too, once the scenes of the file have been analyzed: see [Scenes of a file](#scenes-of-a-file).
 
 ---
 
@@ -372,6 +406,27 @@ print(resp.data)
 `extract_video_data` runs as a [background job](#background-jobs). With `transcribe=True` (the default), a video without captions (Instagram, TikTok, Facebook, ...) is transcribed first, however long it is. YouTube videos rely on their captions. Set `transcribe=False` to never run speech-to-text.
 
 The extracted fields are in `resp.data`, and the video's metadata in `resp.video_info`.
+
+With `include_scenes=True` the fields can also be filled from what the video shows, not only from what is said:
+
+```python
+resp = client.extract_video_data(
+    video_url="https://www.dailymotion.com/video/x84243e",
+    schema={
+        "dish": {"type": "String", "description": "Name of the dish"},
+        "ingredients": {
+            "type": "Array",
+            "description": "Every ingredient, with its quantity",
+            "items": {"type": "String", "description": "One ingredient and its quantity"},
+        },
+    },
+    include_scenes=True,
+)
+print(resp.data["ingredients"])  # read from the text on screen: this video only has music
+print(resp.frames_analyzed)      # 30
+```
+
+The frames are billed as for [`analyze_video`](#use-what-the-video-shows).
 
 ### Schema format
 
@@ -439,6 +494,8 @@ resp = client.extract_file_data(
 )
 print(resp.data)
 ```
+
+`include_scenes=True` also uses what the file shows, once its scenes have been analyzed: see [Scenes of a file](#scenes-of-a-file).
 
 ### Token usage
 
@@ -1183,6 +1240,45 @@ print(result["file_status"])  # "completed"
 
 With `wait_for_completion=False` (the default), the upload returns immediately and processing continues in the background. Check `get_file(file_id).data.file_info.status` until it is `"completed"`.
 
+### Scenes of a file
+
+What a video file shows is analyzed once and kept with the file. Ask for it at upload, or later for a file that is already there:
+
+```python
+import time
+
+result = client.upload_file("./recipe.mp4", include_scenes=True)   # at upload
+file_id = result["file_id"]
+# or, for an existing file:
+client.analyze_file_scenes(file_id)
+
+while True:
+    resp = client.get_file(file_id)
+    info = resp.data.file_info
+    if info.status == "completed" and info.scenes_status in ("completed", "failed"):
+        break
+    time.sleep(3)
+
+for scene in resp.data.scenes or []:
+    print(f"[{scene.start:.0f}s] {scene.description} | on screen: {scene.on_screen_text}")
+```
+
+`file_info.scenes_status` is `"none"` (never asked for), `"processing"`, `"completed"` or `"failed"`; when it failed, `file_info.scenes_error` says why (an audio file has no picture: `frames_not_available`).
+
+Once the scenes are there, `analyze_file` and `extract_file_data` use them with `include_scenes=True`. Asked on a file that has none, they raise `ScenesNotAvailableError`:
+
+```python
+from vidnavigator import ScenesNotAvailableError
+
+try:
+    resp = client.analyze_file(file_id=file_id, query="What is on the label?", include_scenes=True)
+except ScenesNotAvailableError as exc:
+    if exc.scenes_status == "none":
+        client.analyze_file_scenes(file_id)   # start them, then call again once completed
+```
+
+The frames of a file are charged once, when its scenes are analyzed (1 credit per 1,000 frames, with at least 334 frames per hour of video). Using them afterwards adds no frame charge.
+
 ### Retrieve a file and its transcript
 
 ```python
@@ -1299,6 +1395,8 @@ if usage.usage:
     print(f"Search requests: {usage.usage.search_request.used}")
     print(f"Analysis requests: {usage.usage.analysis_request.used}")
     print(f"Transcription hours: {usage.usage.transcription_hour.used}")
+    if usage.usage.frame_analysis:
+        print(f"Frames analyzed: {usage.usage.frame_analysis.used}")
 ```
 
 ---
@@ -1327,6 +1425,7 @@ except VidNavigatorError as exc:
 | `PaymentRequiredError` | 402 | Not enough credits; upgrade or top up |
 | `AccessDeniedError` | 403 | Insufficient permissions, or content that requires login or age verification |
 | `NotFoundError` | 404 | Resource not found, including an unknown or expired job `task_id` |
+| `ScenesNotAvailableError` | 409 | `include_scenes=True` on a file that has no scenes yet (check `.scenes_status`) |
 | `StorageQuotaExceededError` | 413 | Storage quota exceeded |
 | `RateLimitExceeded` | 429 | Too many requests |
 | `TooManyActiveJobsError` | 429 | Too many background jobs already running. Subclass of `RateLimitExceeded`. |
@@ -1379,6 +1478,12 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 2.5.0
+
+- **Scenes in analysis and extraction:** `include_scenes=True` on [`analyze_video`](#use-what-the-video-shows), `extract_video_data`, `analyze_file` and `extract_file_data` uses what the video or file shows (its scenes, with the text on screen) together with the transcript. The results carry `scenes` and `frames_analyzed`.
+- **Analysis as a background job:** `submit_analyze_video`, with `resume_job("analyze_video", task_id)`, for long videos.
+- **[Scenes of a file](#scenes-of-a-file):** `upload_file(..., include_scenes=True)`, `analyze_file_scenes(file_id)`, `file_info.scenes_status`, and the scenes in `get_file`. `ScenesNotAvailableError` when they are asked for and not there yet.
 
 ## What's new in 2.4.0
 

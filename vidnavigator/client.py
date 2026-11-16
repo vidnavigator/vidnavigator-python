@@ -358,11 +358,41 @@ class VidNavigatorClient:
         query: Optional[str] = None,
         transcript_text: bool = False,
         include_usage: bool = False,
+        include_scenes: bool = False,
     ) -> models.AnalysisResponse:
-        """Summarize an online video and, with *query*, answer a question about it."""
+        """Summarize an online video and, with *query*, answer a question about it.
+
+        With ``include_scenes=True`` the analysis also uses what the video
+        shows (its scenes, with the text readable on screen), so it can answer
+        from the picture and works on a video with no speech. ``.data.scenes``
+        then holds the scenes and ``.data.frames_analyzed`` the frames read.
+        For a long video, :meth:`submit_analyze_video` runs the same analysis
+        as a background job, which has no duration limit.
+        """
         return self._call(_core.analyze_video(
             video_url=video_url, query=query, transcript_text=transcript_text,
-            include_usage=include_usage,
+            include_usage=include_usage, include_scenes=include_scenes,
+        ))
+
+    def submit_analyze_video(
+        self,
+        *,
+        video_url: str,
+        query: Optional[str] = None,
+        transcript_text: bool = False,
+        include_scenes: bool = False,
+        webhook_url: Optional[str] = None,
+    ) -> Job:
+        """Start the analysis of an online video as a background job and return its handle.
+
+        Same parameters as :meth:`analyze_video`. ``.result()`` on the handle
+        waits for an :class:`~vidnavigator.models.AnalysisResponse`; pass
+        ``include_usage=True`` to it for the charges. Use it for long videos,
+        in particular with ``include_scenes=True``.
+        """
+        return self._submit(_core.submit_analyze_video(
+            video_url=video_url, query=query, transcript_text=transcript_text,
+            include_scenes=include_scenes, webhook_url=webhook_url,
         ))
 
     def analyze_file(
@@ -372,11 +402,18 @@ class VidNavigatorClient:
         query: Optional[str] = None,
         transcript_text: bool = False,
         include_usage: bool = False,
+        include_scenes: bool = False,
     ) -> models.AnalysisResponse:
-        """Summarize an uploaded file and, with *query*, answer a question about it."""
+        """Summarize an uploaded file and, with *query*, answer a question about it.
+
+        With ``include_scenes=True`` the analysis also uses the scenes kept
+        with the file. They are analyzed once, by :meth:`analyze_file_scenes`
+        or by an upload with ``include_scenes=True``; while the file has none,
+        the call raises :class:`~vidnavigator.ScenesNotAvailableError`.
+        """
         return self._call(_core.analyze_file(
             file_id=file_id, query=query, transcript_text=transcript_text,
-            include_usage=include_usage,
+            include_usage=include_usage, include_scenes=include_scenes,
         ))
 
     # Extraction -------------------------------------------------------------------
@@ -388,6 +425,7 @@ class VidNavigatorClient:
         schema_file: Optional[str] = None,
         what_to_extract: Optional[str] = None,
         transcribe: bool = True,
+        include_scenes: bool = False,
         webhook_url: Optional[str] = None,
     ) -> Job:
         """Start a structured-data extraction job and return its handle immediately.
@@ -396,7 +434,8 @@ class VidNavigatorClient:
         JSON/YAML schema file as multipart/form-data. The schema is validated at
         submit time, so an invalid one raises before anything is billed.
         ``.result()`` on the handle returns an
-        :class:`~vidnavigator.models.ExtractionApiResponse`.
+        :class:`~vidnavigator.models.ExtractionApiResponse`. Same parameters as
+        :meth:`extract_video_data`.
         """
         return self._submit(_core.submit_extract_video_data(
             video_url=video_url,
@@ -404,6 +443,7 @@ class VidNavigatorClient:
             schema_file=schema_file,
             what_to_extract=what_to_extract,
             transcribe=transcribe,
+            include_scenes=include_scenes,
             webhook_url=webhook_url,
         ))
 
@@ -416,14 +456,20 @@ class VidNavigatorClient:
         what_to_extract: Optional[str] = None,
         transcribe: bool = True,
         include_usage: bool = False,
+        include_scenes: bool = False,
         webhook_url: Optional[str] = None,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an online video transcript and wait for the result.
+        """Extract structured data from an online video and wait for the result.
 
         Runs as a background job (``POST /extract/video/async`` then polling).
         The extracted fields are in ``.data`` and the video's metadata in
         ``.video_info``.
+
+        With ``include_scenes=True`` the fields can also be filled from what
+        the video shows (a price on screen, a product, a caption), not only
+        from what is said; ``.frames_analyzed`` is then the number of frames
+        read.
         """
         job = self.submit_extract_video_data(
             video_url=video_url,
@@ -431,6 +477,7 @@ class VidNavigatorClient:
             schema_file=schema_file,
             what_to_extract=what_to_extract,
             transcribe=transcribe,
+            include_scenes=include_scenes,
             webhook_url=webhook_url,
         )
         return job.result(timeout=timeout, include_usage=include_usage)
@@ -443,11 +490,17 @@ class VidNavigatorClient:
         schema_file: Optional[str] = None,
         what_to_extract: Optional[str] = None,
         include_usage: bool = False,
+        include_scenes: bool = False,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an uploaded file's transcript using a custom schema.
+        """Extract structured data from an uploaded file using a custom schema.
 
         Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
         JSON/YAML schema file as multipart/form-data.
+
+        With ``include_scenes=True`` the fields can also be filled from the
+        scenes kept with the file; while the file has none, the call raises
+        :class:`~vidnavigator.ScenesNotAvailableError` (see
+        :meth:`analyze_file_scenes`).
         """
         return self._call(_core.extract_file_data(
             file_id=file_id,
@@ -455,6 +508,7 @@ class VidNavigatorClient:
             schema_file=schema_file,
             what_to_extract=what_to_extract,
             include_usage=include_usage,
+            include_scenes=include_scenes,
         ))
 
     # TikTok -----------------------------------------------------------------------
@@ -902,6 +956,7 @@ class VidNavigatorClient:
         *,
         wait_for_completion: bool = False,
         namespace_ids: Optional[List[str]] = None,
+        include_scenes: bool = False,
     ) -> Dict[str, Any]:
         """Upload an audio or video file.
 
@@ -913,10 +968,31 @@ class VidNavigatorClient:
             If *True*, the call will wait until processing finishes before returning.
         namespace_ids: Optional[List[str]]
             Namespace IDs to assign (sent as a JSON array string per API spec).
+        include_scenes: bool
+            If *True*, what the file shows is analyzed as well (video files
+            only). Follow ``file_info.scenes_status`` with :meth:`get_file`.
         """
         return self._call(_core.upload_file(
             file_path, wait_for_completion=wait_for_completion, namespace_ids=namespace_ids,
+            include_scenes=include_scenes,
         ))
+
+    def analyze_file_scenes(self, file_id: str) -> models.FileScenesResponse:
+        """Start the scene analysis of a file already uploaded: what its picture shows.
+
+        The scenes of a file are analyzed once and kept with it. Follow
+        ``file_info.scenes_status`` with :meth:`get_file`: it goes from
+        ``"processing"`` to ``"completed"`` (the scenes are then in
+        ``.data.scenes``) or ``"failed"`` (``file_info.scenes_error`` says
+        why). :meth:`analyze_file` and :meth:`extract_file_data` read them with
+        ``include_scenes=True``.
+
+        Calling it again while the analysis runs, or once it is done, starts
+        nothing new: ``.data.scenes_status`` says where it stands. An audio
+        file has no picture: the call raises
+        :class:`~vidnavigator.BadRequestError` (``frames_not_available``).
+        """
+        return self._call(_core.analyze_file_scenes(file_id))
 
     def retry_file_processing(self, file_id: str) -> Dict[str, Any]:
         return self._call(_core.file_action("POST", f"/file/{file_id}/retry"))

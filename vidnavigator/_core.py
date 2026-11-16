@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.4.0"
+USER_AGENT = "vidnavigator-python/2.5.0"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -227,12 +227,15 @@ def upload_file(
     *,
     wait_for_completion: bool = False,
     namespace_ids: Optional[List[str]] = None,
+    include_scenes: bool = False,
 ) -> Request:
     if not os.path.isfile(file_path):
         raise FileNotFoundError(file_path)
     data: Dict[str, Any] = {"wait_for_completion": "true" if wait_for_completion else "false"}
     if namespace_ids is not None:
         data["namespace_ids"] = json.dumps(namespace_ids)
+    if include_scenes:
+        data["include_scenes"] = "true"
     content_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
     upload = Upload("file", file_path, os.path.basename(file_path), content_type)
     return Request("POST", "/upload/file", {"data": data}, upload=upload)
@@ -242,26 +245,51 @@ def file_action(method: str, path: str) -> Request:
     return Request(method, path, {})
 
 
+def analyze_file_scenes(file_id: str) -> Request:
+    return Request("POST", f"/file/{file_id}/scenes", {}, _model(models.FileScenesResponse))
+
+
 # ---------------------------------------------------------------------------
 # Analysis and extraction
 # ---------------------------------------------------------------------------
 
 def _analyze(path: str, key: str, value: str, query: Optional[str], transcript_text: bool,
-             include_usage: bool) -> Request:
+             include_usage: bool, include_scenes: bool = False) -> Request:
     payload: Dict[str, Any] = {key: value, "transcript_text": transcript_text, "include_usage": include_usage}
     if query:
         payload["query"] = query
+    if include_scenes:
+        payload["include_scenes"] = True
     return _json("POST", path, payload, models.AnalysisResponse)
 
 
 def analyze_video(*, video_url: str, query: Optional[str] = None, transcript_text: bool = False,
-                  include_usage: bool = False) -> Request:
-    return _analyze("/analyze/video", "video_url", video_url, query, transcript_text, include_usage)
+                  include_usage: bool = False, include_scenes: bool = False) -> Request:
+    return _analyze("/analyze/video", "video_url", video_url, query, transcript_text, include_usage,
+                    include_scenes)
+
+
+def submit_analyze_video(
+    *,
+    video_url: str,
+    query: Optional[str] = None,
+    transcript_text: bool = False,
+    include_scenes: bool = False,
+    webhook_url: Optional[str] = None,
+) -> Request:
+    payload: Dict[str, Any] = {"video_url": video_url, "transcript_text": transcript_text}
+    if query:
+        payload["query"] = query
+    if include_scenes:
+        payload["include_scenes"] = True
+    _with_optional(payload, webhook_url=webhook_url)
+    return _submit("analyze_video", _json("POST", "/analyze/video/async", payload, models.AsyncJobSubmitResponse))
 
 
 def analyze_file(*, file_id: str, query: Optional[str] = None, transcript_text: bool = False,
-                 include_usage: bool = False) -> Request:
-    return _analyze("/analyze/file", "file_id", file_id, query, transcript_text, include_usage)
+                 include_usage: bool = False, include_scenes: bool = False) -> Request:
+    return _analyze("/analyze/file", "file_id", file_id, query, transcript_text, include_usage,
+                    include_scenes)
 
 
 def submit_extract_video_data(
@@ -271,12 +299,15 @@ def submit_extract_video_data(
     schema_file: Optional[str] = None,
     what_to_extract: Optional[str] = None,
     transcribe: bool = True,
+    include_scenes: bool = False,
     webhook_url: Optional[str] = None,
 ) -> Request:
     fields = {
         "video_url": video_url,
         "transcribe": transcribe,
         "what_to_extract": what_to_extract,
+        # Sent only when asked for: a request that does not use the scenes is the one it always was.
+        "include_scenes": True if include_scenes else None,
         "webhook_url": webhook_url,
     }
     return _submit("extract_video", _schema_request(
@@ -291,6 +322,7 @@ def extract_file_data(
     schema_file: Optional[str] = None,
     what_to_extract: Optional[str] = None,
     include_usage: bool = False,
+    include_scenes: bool = False,
 ) -> Request:
     if (schema is None) == (schema_file is None):
         raise ValueError("Pass exactly one of schema or schema_file.")
@@ -298,11 +330,15 @@ def extract_file_data(
         data: Dict[str, Any] = {"file_id": file_id, "include_usage": "true" if include_usage else "false"}
         if what_to_extract is not None:
             data["what_to_extract"] = what_to_extract
+        if include_scenes:
+            data["include_scenes"] = "true"
         return Request("POST", "/extract/file", {"data": data}, _model(models.ExtractionApiResponse),
                        upload=_schema_upload(schema_file))
     payload: Dict[str, Any] = {"file_id": file_id, "schema": schema, "include_usage": include_usage}
     if what_to_extract is not None:
         payload["what_to_extract"] = what_to_extract
+    if include_scenes:
+        payload["include_scenes"] = True
     return _json("POST", "/extract/file", payload, models.ExtractionApiResponse)
 
 

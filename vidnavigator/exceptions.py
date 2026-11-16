@@ -70,6 +70,25 @@ class StorageQuotaExceededError(VidNavigatorError):
     """Raised when storage quota is exceeded (HTTP 413)."""
 
 
+class ScenesNotAvailableError(VidNavigatorError):
+    """Raised on HTTP 409 when ``include_scenes=True`` is asked on a file that has no scenes to read.
+
+    ``scenes_status`` says where the scene analysis of the file stands:
+
+    - ``"none"``: never asked for. Start it with ``analyze_file_scenes(file_id)``,
+      or upload with ``include_scenes=True``.
+    - ``"processing"``: it is running. Call again once ``get_file`` reports
+      ``file_info.scenes_status == "completed"``.
+    - ``"failed"``: the file has no picture to read (an audio file, for example);
+      ``payload["scenes_error"]`` says why.
+    """
+
+    @property
+    def scenes_status(self) -> Optional[str]:
+        status = (self.payload or {}).get("scenes_status")
+        return status if isinstance(status, str) else None
+
+
 class SystemOverloadError(VidNavigatorError):
     """Raised when the API is temporarily overloaded or returns HTTP 503."""
 
@@ -119,6 +138,7 @@ _STATUS_EXCEPTIONS = {
 
 _ERROR_CODE_EXCEPTIONS = {
     "too_many_active_jobs": TooManyActiveJobsError,
+    "scenes_not_available": ScenesNotAvailableError,
 }
 
 

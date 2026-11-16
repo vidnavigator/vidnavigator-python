@@ -253,11 +253,17 @@ class AsyncVidNavigatorClient:
         *,
         wait_for_completion: bool = False,
         namespace_ids: Optional[List[str]] = None,
+        include_scenes: bool = False,
     ) -> Dict[str, Any]:
-        """Upload an audio or video file."""
+        """Upload an audio or video file. ``include_scenes=True`` also analyzes what a video file shows."""
         return await self._call(_core.upload_file(
             file_path, wait_for_completion=wait_for_completion, namespace_ids=namespace_ids,
+            include_scenes=include_scenes,
         ))
+
+    async def analyze_file_scenes(self, file_id: str) -> models.FileScenesResponse:
+        """Start the scene analysis of a file already uploaded (see the sync client for details)."""
+        return await self._call(_core.analyze_file_scenes(file_id))
 
     async def retry_file_processing(self, file_id: str) -> Dict[str, Any]:
         return await self._call(_core.file_action("POST", f"/file/{file_id}/retry"))
@@ -279,11 +285,30 @@ class AsyncVidNavigatorClient:
         query: Optional[str] = None,
         transcript_text: bool = False,
         include_usage: bool = False,
+        include_scenes: bool = False,
     ) -> models.AnalysisResponse:
-        """Summarize an online video and, with *query*, answer a question about it."""
+        """Summarize an online video and, with *query*, answer a question about it.
+
+        ``include_scenes=True`` also uses what the video shows.
+        """
         return await self._call(_core.analyze_video(
             video_url=video_url, query=query, transcript_text=transcript_text,
-            include_usage=include_usage,
+            include_usage=include_usage, include_scenes=include_scenes,
+        ))
+
+    async def submit_analyze_video(
+        self,
+        *,
+        video_url: str,
+        query: Optional[str] = None,
+        transcript_text: bool = False,
+        include_scenes: bool = False,
+        webhook_url: Optional[str] = None,
+    ) -> AsyncJob:
+        """Start the analysis of an online video as a background job and return its handle."""
+        return await self._submit(_core.submit_analyze_video(
+            video_url=video_url, query=query, transcript_text=transcript_text,
+            include_scenes=include_scenes, webhook_url=webhook_url,
         ))
 
     async def analyze_file(
@@ -293,11 +318,15 @@ class AsyncVidNavigatorClient:
         query: Optional[str] = None,
         transcript_text: bool = False,
         include_usage: bool = False,
+        include_scenes: bool = False,
     ) -> models.AnalysisResponse:
-        """Summarize an uploaded file and, with *query*, answer a question about it."""
+        """Summarize an uploaded file and, with *query*, answer a question about it.
+
+        ``include_scenes=True`` also uses the scenes kept with the file.
+        """
         return await self._call(_core.analyze_file(
             file_id=file_id, query=query, transcript_text=transcript_text,
-            include_usage=include_usage,
+            include_usage=include_usage, include_scenes=include_scenes,
         ))
 
     # Extraction -------------------------------------------------------------------
@@ -309,6 +338,7 @@ class AsyncVidNavigatorClient:
         schema_file: Optional[str] = None,
         what_to_extract: Optional[str] = None,
         transcribe: bool = True,
+        include_scenes: bool = False,
         webhook_url: Optional[str] = None,
     ) -> AsyncJob:
         """Start a structured-data extraction job and return its handle immediately."""
@@ -318,6 +348,7 @@ class AsyncVidNavigatorClient:
             schema_file=schema_file,
             what_to_extract=what_to_extract,
             transcribe=transcribe,
+            include_scenes=include_scenes,
             webhook_url=webhook_url,
         ))
 
@@ -330,16 +361,21 @@ class AsyncVidNavigatorClient:
         what_to_extract: Optional[str] = None,
         transcribe: bool = True,
         include_usage: bool = False,
+        include_scenes: bool = False,
         webhook_url: Optional[str] = None,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an online video and wait for the result."""
+        """Extract structured data from an online video and wait for the result.
+
+        ``include_scenes=True`` also fills the fields from what the video shows.
+        """
         job = await self.submit_extract_video_data(
             video_url=video_url,
             schema=schema,
             schema_file=schema_file,
             what_to_extract=what_to_extract,
             transcribe=transcribe,
+            include_scenes=include_scenes,
             webhook_url=webhook_url,
         )
         return await job.result(timeout=timeout, include_usage=include_usage)
@@ -352,14 +388,16 @@ class AsyncVidNavigatorClient:
         schema_file: Optional[str] = None,
         what_to_extract: Optional[str] = None,
         include_usage: bool = False,
+        include_scenes: bool = False,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an uploaded file's transcript."""
+        """Extract structured data from an uploaded file. ``include_scenes=True`` also uses its scenes."""
         return await self._call(_core.extract_file_data(
             file_id=file_id,
             schema=schema,
             schema_file=schema_file,
             what_to_extract=what_to_extract,
             include_usage=include_usage,
+            include_scenes=include_scenes,
         ))
 
     # TikTok -----------------------------------------------------------------------
