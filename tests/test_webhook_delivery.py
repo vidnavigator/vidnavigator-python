@@ -34,7 +34,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-SCHEMA = {"mood": {"type": "String", "description": "One word describing the mood"}}
+SCHEMA = {"type": "object", "properties": {"mood": {"type": "string", "description": "One word describing the mood"}}}
 DELIVERY_TIMEOUT = int(os.getenv("VIDNAVIGATOR_WEBHOOK_TIMEOUT_SECONDS", "90"))
 
 

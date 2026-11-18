@@ -1012,6 +1012,9 @@ class ExtractionApiResponse(BaseModel):
     frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
     scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
     transcript_error: Optional[WatchTranscriptError] = Field(None, alias="transcript_error")
+    # The schema written from ``what_to_extract`` when the request had none (a JSON Schema,
+    # JSON key ``schema``): pass it as ``schema`` in later requests to get the same fields.
+    extraction_schema: Optional[Dict[str, Any]] = Field(None, alias="schema")
     usage: Optional[UsageBlock] = None
 
 
@@ -1145,6 +1148,9 @@ class ExtractVideoJob(_AsyncJobBase):
     frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
     scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
     transcript_error: Optional[WatchTranscriptError] = Field(None, alias="transcript_error")
+    # The schema written from ``what_to_extract`` when the request had none (a JSON Schema,
+    # JSON key ``schema``): pass it as ``schema`` in later requests to get the same fields.
+    extraction_schema: Optional[Dict[str, Any]] = Field(None, alias="schema")
 
 
 class AnalyzeVideoJob(_AsyncJobBase):
@@ -1209,6 +1215,8 @@ class WebhookEventData(BaseModel):
     result_truncated: Optional[bool] = Field(None, alias="result_truncated")
     # ``extract_video.completed`` only; sent even when ``result_truncated`` is true.
     video_info: Optional[Dict[str, Any]] = Field(None, alias="video_info")
+    # ``extract_video.completed`` only, when the request had no schema.
+    extraction_schema: Optional[Dict[str, Any]] = Field(None, alias="schema")
     error: Optional[AsyncJobError] = None
 
 

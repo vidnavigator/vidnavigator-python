@@ -59,7 +59,7 @@ ANALYSIS_WITH_SCENES = {
         "total_credits": 0.0401,
     },
 }
-SCHEMA = {"dish": {"type": "String", "description": "Name of the dish"}}
+SCHEMA = {"type": "object", "properties": {"dish": {"type": "string", "description": "Name of the dish"}}}
 NO_SCENES = {
     "status": "error", "error": "scenes_not_available", "error_code": "scenes_not_available",
     "message": "This file has no scenes yet. Start their analysis with POST /v1/file/f1/scenes, "
@@ -205,7 +205,7 @@ def test_extract_file_data_with_scenes_json_and_schema_file(client, tmp_path):
     assert resp.frames_analyzed == 30 and resp.file_info.scenes_status == "completed"
 
     schema_file = tmp_path / "schema.json"
-    schema_file.write_text('{"dish": {"type": "String", "description": "Name of the dish"}}', encoding="utf-8")
+    schema_file.write_text('{"type": "object", "properties": {"dish": {"type": "string", "description": "Name of the dish"}}}', encoding="utf-8")
     with patch.object(client, "_request", return_value=raw) as req:
         client.extract_file_data(file_id="f1", schema_file=str(schema_file), include_scenes=True)
     assert req.call_args[1]["data"] == {"file_id": "f1", "include_usage": "false", "include_scenes": "true"}

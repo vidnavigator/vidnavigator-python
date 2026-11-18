@@ -68,6 +68,8 @@ def _finalize(job_type: str, resp: Any) -> Any:
             scenes_error=resp.data.scenes_error,
             transcript_error=resp.data.transcript_error,
             usage=resp.usage,
+            # By its JSON key: the attribute name is not accepted at construction.
+            **{"schema": resp.data.extraction_schema},
         )
     if job_type == "tweet_statement":
         return models.TweetStatementResponse(

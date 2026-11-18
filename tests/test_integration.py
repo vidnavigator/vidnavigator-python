@@ -199,14 +199,17 @@ def test_extract_video_data_basic(client):
     resp = client.extract_video_data(
         video_url=TEST_VIDEO_URL,
         schema={
-            "one_word_mood": {
-                "type": "String",
-                "description": "Single word describing the overall mood",
-            },
-            "has_lyrics": {
-                "type": "Boolean",
-                "description": "Whether the video has spoken or sung lyrics",
-            },
+            "type": "object",
+            "properties": {
+                "one_word_mood": {
+                    "type": "string",
+                    "description": "Single word describing the overall mood"
+                },
+                "has_lyrics": {
+                    "type": "boolean",
+                    "description": "Whether the video has spoken or sung lyrics"
+                }
+            }
         },
         what_to_extract="Infer mood from the lyrics/topic only.",
     )
@@ -218,10 +221,13 @@ def test_extract_video_data_with_usage(client):
     resp = client.extract_video_data(
         video_url=TEST_VIDEO_URL,
         schema={
-            "single_label": {
-                "type": "String",
-                "description": "One short label for the video",
-            },
+            "type": "object",
+            "properties": {
+                "single_label": {
+                    "type": "string",
+                    "description": "One short label for the video"
+                }
+            }
         },
         include_usage=True,
     )
@@ -238,10 +244,13 @@ def test_extract_video_data_with_transcribe_option(client):
     resp = client.extract_video_data(
         video_url=TEST_VIDEO_URL,
         schema={
-            "short_summary": {
-                "type": "String",
-                "description": "A short summary of the video",
-            },
+            "type": "object",
+            "properties": {
+                "short_summary": {
+                    "type": "string",
+                    "description": "A short summary of the video"
+                }
+            }
         },
         transcribe=False,
     )
@@ -456,7 +465,7 @@ def test_tiktok_live_room_unknown_is_not_found(client):
 def test_extract_video_data_blocking_runs_as_job(client):
     resp = client.extract_video_data(
         video_url=TEST_VIDEO_URL,
-        schema={"mood": {"type": "String", "description": "One word describing the mood"}},
+        schema={"type": "object", "properties": {"mood": {"type": "string", "description": "One word describing the mood"}}},
         transcribe=False,
         include_usage=True,
         timeout=ASYNC_JOB_TIMEOUT_SECONDS,
@@ -471,7 +480,7 @@ def test_extract_video_data_blocking_runs_as_job(client):
 def test_extract_video_job_handle_lifecycle(client):
     handle = client.submit_extract_video_data(
         video_url=TEST_VIDEO_URL,
-        schema={"mood": {"type": "String", "description": "One word describing the mood"}},
+        schema={"type": "object", "properties": {"mood": {"type": "string", "description": "One word describing the mood"}}},
         transcribe=False,
         webhook_url="",
     )
@@ -528,7 +537,7 @@ def test_failed_job_raises_from_error_object(client):
 def test_blocking_timeout_keeps_task_id_and_resumes(client):
     handle = client.submit_extract_video_data(
         video_url=TEST_VIDEO_URL,
-        schema={"mood": {"type": "String", "description": "One word describing the mood"}},
+        schema={"type": "object", "properties": {"mood": {"type": "string", "description": "One word describing the mood"}}},
         transcribe=False,
     )
     try:
@@ -645,10 +654,13 @@ def test_file_upload_and_extract(client):
         ext = client.extract_file_data(
             file_id=file_id,
             schema={
-                "gist": {
-                    "type": "String",
-                    "description": "One sentence summary of the file content",
-                },
+                "type": "object",
+                "properties": {
+                    "gist": {
+                        "type": "string",
+                        "description": "One sentence summary of the file content"
+                    }
+                }
             },
             what_to_extract="Summarize the main point only.",
         )

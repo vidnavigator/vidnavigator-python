@@ -430,9 +430,12 @@ class VidNavigatorClient:
     ) -> Job:
         """Start a structured-data extraction job and return its handle immediately.
 
-        Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
-        JSON/YAML schema file as multipart/form-data. The schema is validated at
-        submit time, so an invalid one raises before anything is billed.
+        Pass ``schema`` (a standard JSON Schema, e.g. a Pydantic model's
+        ``model_json_schema()``) to send a JSON request body, or ``schema_file``
+        to upload a JSON/YAML schema file as multipart/form-data, or neither with
+        ``what_to_extract``: the schema is then written from that text and comes
+        back on ``.extraction_schema``. A schema is validated at submit time, so
+        an invalid one raises before anything is billed.
         ``.result()`` on the handle returns an
         :class:`~vidnavigator.models.ExtractionApiResponse`. Same parameters as
         :meth:`extract_video_data`.
@@ -492,10 +495,12 @@ class VidNavigatorClient:
         include_usage: bool = False,
         include_scenes: bool = False,
     ) -> models.ExtractionApiResponse:
-        """Extract structured data from an uploaded file using a custom schema.
+        """Extract structured data from an uploaded file, with a JSON Schema or from ``what_to_extract`` alone.
 
-        Pass ``schema`` to send a JSON request body, or ``schema_file`` to upload a
-        JSON/YAML schema file as multipart/form-data.
+        Pass ``schema`` (a standard JSON Schema) to send a JSON request body, or
+        ``schema_file`` to upload a JSON/YAML schema file as multipart/form-data,
+        or neither with ``what_to_extract``: the schema is then written from that
+        text and comes back on ``.extraction_schema``.
 
         With ``include_scenes=True`` the fields can also be filled from the
         scenes kept with the file; while the file has none, the call raises

@@ -33,7 +33,7 @@ _base_url = os.getenv("VIDNAVIGATOR_BASE_URL")
 pytestmark = pytest.mark.skipif(not _api_key, reason="VIDNAVIGATOR_API_KEY not set")
 
 YT = "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-SCHEMA = {"mood": {"type": "String", "description": "One word describing the mood"}}
+SCHEMA = {"type": "object", "properties": {"mood": {"type": "string", "description": "One word describing the mood"}}}
 TRANSCRIBE_URL = os.getenv("VIDNAVIGATOR_TRANSCRIBE_URL")
 WATCH_URL = os.getenv("VIDNAVIGATOR_WATCH_URL")
 TWEET_ID = os.getenv("VIDNAVIGATOR_TWEET_ID")
@@ -105,7 +105,7 @@ def test_concurrent_jobs_with_gather():
         return await asyncio.gather(*(
             client.extract_video_data(
                 video_url=YT,
-                schema={"answer": {"type": "String", "description": question}},
+                schema={"type": "object", "properties": {"answer": {"type": "string", "description": question}}},
                 transcribe=False,
                 timeout=JOB_TIMEOUT,
             )
@@ -232,7 +232,7 @@ def test_file_upload_extract_and_delete():
                 await asyncio.sleep(3)
             extracted = await client.extract_file_data(
                 file_id=file_id,
-                schema={"gist": {"type": "String", "description": "One sentence summary"}},
+                schema={"type": "object", "properties": {"gist": {"type": "string", "description": "One sentence summary"}}},
             )
             return file_id, extracted
         finally:
