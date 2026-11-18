@@ -26,7 +26,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Transcripts (segments with timestamps or plain text) | Yes | Yes |
 | Scenes: what a video shows, with the text on screen | Yes | -- |
 | AI analysis (summary, people, places, key subjects, Q&A) | Yes | Yes |
-| Structured data extraction (your custom schema) | Yes | Yes |
+| Structured data extraction (your JSON Schema, or plain words) | Yes | Yes |
 | Semantic search across content | Yes (YouTube) | Yes |
 | File upload, storage, and management | -- | Yes |
 | Namespace organization and scoped search | -- | Yes |
@@ -106,10 +106,10 @@ print(resp.data.transcript)
 resp = client.transcribe_video(video_url="https://www.instagram.com/reel/C86ZvEaqRmo/", transcript_text=True)
 print(resp.data.transcript)
 
-# 3. Structured data from a video
+# 3. Structured data from a video (a JSON Schema, or just what_to_extract="...")
 resp = client.extract_video_data(
     video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    schema={"mood": {"type": "String", "description": "Overall mood in one word"}},
+    schema={"type": "object", "properties": {"mood": {"type": "string", "description": "Overall mood in one word"}}},
 )
 print(resp.data)  # {"mood": "upbeat"}
 
@@ -374,7 +374,7 @@ print(resp.data.transcript_analysis.summary)
 
 ## Structured Extraction
 
-Describe the fields you want and the API fills them in from the video's transcript. It's useful for building pipelines, populating databases, or feeding downstream systems.
+Describe the fields you want, as a standard JSON Schema, and the API fills them in from the video's transcript. It's useful for building pipelines, populating databases, or feeding downstream systems.
 
 ### From an online video
 
@@ -382,18 +382,18 @@ Describe the fields you want and the API fills them in from the video's transcri
 resp = client.extract_video_data(
     video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
     schema={
-        "mood": {
-            "type": "String",
-            "description": "Overall mood of the video in one word",
-        },
-        "main_topics": {
-            "type": "Array",
-            "description": "List of main topics discussed",
-            "items": {"type": "String", "description": "A topic"},
-        },
-        "has_spoken_lyrics": {
-            "type": "Boolean",
-            "description": "Whether the video contains spoken or sung lyrics",
+        "type": "object",
+        "properties": {
+            "mood": {"type": "string", "description": "Overall mood of the video in one word"},
+            "main_topics": {
+                "type": "array",
+                "description": "List of main topics discussed",
+                "items": {"type": "string"},
+            },
+            "has_spoken_lyrics": {
+                "type": "boolean",
+                "description": "Whether the video contains spoken or sung lyrics",
+            },
         },
     },
     what_to_extract="Focus on the tone and content of the lyrics.",
@@ -413,11 +413,14 @@ With `include_scenes=True` the fields can also be filled from what the video sho
 resp = client.extract_video_data(
     video_url="https://www.dailymotion.com/video/x84243e",
     schema={
-        "dish": {"type": "String", "description": "Name of the dish"},
-        "ingredients": {
-            "type": "Array",
-            "description": "Every ingredient, with its quantity",
-            "items": {"type": "String", "description": "One ingredient and its quantity"},
+        "type": "object",
+        "properties": {
+            "dish": {"type": "string", "description": "Name of the dish"},
+            "ingredients": {
+                "type": "array",
+                "description": "Every ingredient, with its quantity",
+                "items": {"type": "string"},
+            },
         },
     },
     include_scenes=True,
@@ -430,35 +433,53 @@ The frames are billed as for [`analyze_video`](#use-what-the-video-shows).
 
 ### Schema format
 
-Each field needs a `type` and a `description`. A schema can have at most 10 top-level fields and 3 levels of nesting.
+`schema` is a standard JSON Schema whose root is an object. Give each property a `type` and a `description` (what to put in it). A schema can have at most 10 fields per level and 3 levels of nesting.
 
 | `type` | Extra keys | Example value |
 |---|---|---|
-| `String`, `Number`, `Integer`, `Boolean` | -- | `"upbeat"`, `4.5`, `3`, `True` |
-| `Enum` | `enum`: the allowed values | `"positive"` |
-| `Array` | `items`: the schema of one element | `["love", "commitment"]` |
-| `Object` | `properties`: the sub-fields | `{"name": "Rick", "role": "singer"}` |
+| `string`, `number`, `integer`, `boolean` | -- | `"upbeat"`, `4.5`, `3`, `True` |
+| any of them with `enum` | `enum`: the allowed values | `"positive"` |
+| `array` | `items`: the schema of one element | `["love", "commitment"]` |
+| `object` | `properties`: the sub-fields | `{"name": "Rick", "role": "singer"}` |
 
 ```python
 schema = {
-    "sentiment": {
-        "type": "Enum",
-        "description": "Overall sentiment of the video",
-        "enum": ["positive", "negative", "neutral"],
-    },
-    "speaker": {
-        "type": "Object",
-        "description": "The main speaker or singer",
-        "properties": {
-            "name": {"type": "String", "description": "Their name"},
-            "role": {"type": "String", "description": "Their role in the video"},
+    "type": "object",
+    "properties": {
+        "sentiment": {
+            "type": "string",
+            "description": "Overall sentiment of the video",
+            "enum": ["positive", "negative", "neutral"],
         },
+        "speaker": {
+            "type": "object",
+            "description": "The main speaker or singer",
+            "properties": {
+                "name": {"type": "string", "description": "Their name"},
+                "role": {"type": "string", "description": "Their role in the video"},
+            },
+        },
+        "key_takeaway": {"type": "string", "description": "The single most important takeaway"},
     },
-    "key_takeaway": {"type": "String", "description": "The single most important takeaway"},
 }
 ```
 
+A Pydantic model works as it is: pass `schema=MyModel.model_json_schema()` (its `$defs` and nullable fields are understood). `required` and `additionalProperties` change nothing: a field the video does not give comes back as `None`.
+
 An invalid schema raises `BadRequestError` with `error_code == "invalid_schema"` **before** anything is transcribed or billed.
+
+### Without a schema
+
+Say what you want in plain words with `what_to_extract` alone. The schema is written for you and comes back on `resp.extraction_schema`: pass it as `schema` next time to get the same fields.
+
+```python
+resp = client.extract_video_data(
+    video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    what_to_extract="The mood of the song and every topic it touches on",
+)
+print(resp.data)               # {"mood": "upbeat", "topics": ["love", "commitment"]}
+print(resp.extraction_schema)  # {"type": "object", "properties": {"mood": {...}, "topics": {...}}, ...}
+```
 
 ### From a schema file
 
@@ -466,18 +487,18 @@ Keep schemas in JSON or YAML files and pass `schema_file` instead of `schema`:
 
 ```yaml
 # meeting-schema.yaml
-action_items:
-  type: Array
-  description: Action items mentioned in the meeting
-  items:
-    type: String
-    description: One action item
-decisions_made:
-  type: Array
-  description: Key decisions that were agreed upon
-  items:
-    type: String
-    description: One decision
+type: object
+properties:
+  action_items:
+    type: array
+    description: Action items mentioned in the meeting
+    items:
+      type: string
+  decisions_made:
+    type: array
+    description: Key decisions that were agreed upon
+    items:
+      type: string
 ```
 
 ```python
@@ -502,7 +523,7 @@ print(resp.data)
 ```python
 resp = client.extract_video_data(
     video_url="...",
-    schema={"summary": {"type": "String", "description": "One-line summary"}},
+    schema={"type": "object", "properties": {"summary": {"type": "string", "description": "One-line summary"}}},
     include_usage=True,
 )
 tokens = resp.usage.analysis_tokens
@@ -667,7 +688,7 @@ Some errors happen before a job exists. No task is created, so there is nothing 
 |---|---|
 | Transcribe | `TranscriptResponse` (`data.video_info`, `data.transcript`), or `TranscribeAllVideosResponse` with `all_videos=True` |
 | Watch | `WatchResponse` (`data.video_info`, `data.transcript`, `data.scenes`, `data.frames_analyzed`) |
-| Extract | `ExtractionApiResponse` (`data` is a `dict` matching your schema) |
+| Extract | `ExtractionApiResponse` (`data` is a `dict` matching your schema; `extraction_schema` is the schema written when you gave none) |
 | Tweet | `TweetStatementResponse` (`data.final_statement`, `data.detailed_analysis`, ...) |
 | TikTok profile / search / LIVE search | `TikTokProfileResponse` / `TikTokSearchResponse` / `TikTokLiveSearchResponse`, with every video / result / room (all pages merged), or one page when you pass `limit` |
 
@@ -916,7 +937,7 @@ A background job can call your server when it finishes. Every job method, blocki
 ```python
 job = client.submit_extract_video_data(
     video_url="https://www.tiktok.com/@user/video/1234567890",
-    schema={"summary": {"type": "String", "description": "One-line summary"}},
+    schema={"type": "object", "properties": {"summary": {"type": "string", "description": "One-line summary"}}},
     webhook_url="https://example.com/hooks/vidnavigator",
 )
 ```
@@ -1442,7 +1463,7 @@ API exceptions carry the details of the error response:
 from vidnavigator import BadRequestError
 
 try:
-    client.extract_video_data(video_url=url, schema={"x": {"type": "Nope", "description": "?"}})
+    client.extract_video_data(video_url=url, schema={"type": "object", "properties": {"x": {"type": "nope"}}})
 except BadRequestError as exc:
     print(exc.status_code)  # 400
     print(exc.error_code)   # "invalid_schema" -- machine-readable, safe to branch on
@@ -1478,6 +1499,11 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 2.6.0
+
+- **Extraction takes a standard JSON Schema**, the only schema format the API accepts now: `{"type": "object", "properties": {...}}`, with lowercase types. A Pydantic model's `model_json_schema()` can be passed as it is. The former format (`{"field": {"type": "String", ...}}`) is refused with `invalid_schema`: see [Schema format](#schema-format).
+- **[Extraction without a schema](#without-a-schema):** `extract_video_data`, `submit_extract_video_data` and `extract_file_data` take `what_to_extract` alone; the schema written for it comes back on `.extraction_schema` (also on the `extract_video.completed` webhook event).
 
 ## What's new in 2.5.0
 

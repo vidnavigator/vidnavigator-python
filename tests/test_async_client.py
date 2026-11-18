@@ -45,7 +45,7 @@ USAGE = {
     "charges": [{"service_type": "transcription_hour", "quantity": 0.5, "credits": 0.5}],
     "total_credits": 0.5,
 }
-SCHEMA = {"mood": {"type": "String", "description": "One word mood"}}
+SCHEMA = {"type": "object", "properties": {"mood": {"type": "string", "description": "One word mood"}}}
 
 
 class Api:
@@ -327,7 +327,7 @@ def test_get_files_query_params():
 
 def test_extract_file_data_schema_file_multipart(tmp_path):
     schema_file = tmp_path / "schema.yaml"
-    schema_file.write_text("summary:\n  type: String\n  description: Summary\n")
+    schema_file.write_text("type: object\nproperties:\n  summary:\n    type: string\n    description: Summary\n")
     api = Api().on("POST", "/v1/extract/file", {"status": "success", "data": {"summary": "hi"}})
 
     async def go():

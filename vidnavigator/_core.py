@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.5.0"
+USER_AGENT = "vidnavigator-python/2.6.0"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -108,6 +108,18 @@ def _schema_upload(schema_file: str) -> Upload:
     )
 
 
+def _check_schema_args(schema: Any, schema_file: Optional[str], what_to_extract: Optional[str]) -> None:
+    """At most one of ``schema`` / ``schema_file``; neither only with ``what_to_extract``.
+
+    The schema is a standard JSON Schema. Without one, the API writes it from
+    ``what_to_extract`` and returns it (``extraction_schema`` on the response).
+    """
+    if schema is not None and schema_file is not None:
+        raise ValueError("Pass at most one of schema or schema_file.")
+    if schema is None and schema_file is None and not (what_to_extract and what_to_extract.strip()):
+        raise ValueError("Pass schema, schema_file or what_to_extract.")
+
+
 def _schema_request(
     path: str,
     fields: Dict[str, Any],
@@ -115,17 +127,17 @@ def _schema_request(
     schema_file: Optional[str],
     model_cls: Any,
 ) -> Request:
-    """JSON body with ``schema``, or multipart with an uploaded schema file.
+    """JSON body with ``schema`` (or none), or multipart with an uploaded schema file.
 
     ``None`` values in *fields* are omitted.
     """
-    if (schema is None) == (schema_file is None):
-        raise ValueError("Pass exactly one of schema or schema_file.")
+    _check_schema_args(schema, schema_file, fields.get("what_to_extract"))
     fields = {k: v for k, v in fields.items() if v is not None}
     if schema_file is not None:
         return Request("POST", path, {"data": _bool_form(fields)}, _model(model_cls),
                        upload=_schema_upload(schema_file))
-    return Request("POST", path, {"json_body": {**fields, "schema": schema}}, _model(model_cls))
+    body = {**fields, "schema": schema} if schema is not None else fields
+    return Request("POST", path, {"json_body": body}, _model(model_cls))
 
 
 def _submit(job_type: str, request: Request) -> Request:
@@ -324,8 +336,7 @@ def extract_file_data(
     include_usage: bool = False,
     include_scenes: bool = False,
 ) -> Request:
-    if (schema is None) == (schema_file is None):
-        raise ValueError("Pass exactly one of schema or schema_file.")
+    _check_schema_args(schema, schema_file, what_to_extract)
     if schema_file is not None:
         data: Dict[str, Any] = {"file_id": file_id, "include_usage": "true" if include_usage else "false"}
         if what_to_extract is not None:
@@ -334,7 +345,9 @@ def extract_file_data(
             data["include_scenes"] = "true"
         return Request("POST", "/extract/file", {"data": data}, _model(models.ExtractionApiResponse),
                        upload=_schema_upload(schema_file))
-    payload: Dict[str, Any] = {"file_id": file_id, "schema": schema, "include_usage": include_usage}
+    payload: Dict[str, Any] = {"file_id": file_id, "include_usage": include_usage}
+    if schema is not None:
+        payload["schema"] = schema
     if what_to_extract is not None:
         payload["what_to_extract"] = what_to_extract
     if include_scenes:

@@ -107,12 +107,22 @@ def test_extract_with_auto_transcription(client):
     resp = client.extract_video_data(
         video_url=TRANSCRIBE_URLS["instagram"],
         schema={
-            "topic": {"type": "String", "description": "Main topic in a few words"},
-            "sentiment": {
-                "type": "Enum",
-                "description": "Overall sentiment",
-                "enum": ["positive", "negative", "neutral"],
-            },
+            "type": "object",
+            "properties": {
+                "topic": {
+                    "type": "string",
+                    "description": "Main topic in a few words"
+                },
+                "sentiment": {
+                    "type": "string",
+                    "enum": [
+                        "positive",
+                        "negative",
+                        "neutral"
+                    ],
+                    "description": "Overall sentiment"
+                }
+            }
         },
         transcribe=True,
         include_usage=True,

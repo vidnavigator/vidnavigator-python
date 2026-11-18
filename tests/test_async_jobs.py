@@ -85,7 +85,7 @@ TWEET_RESULT = {
     "tweet_media_summary": "A long video about X.",
 }
 
-SCHEMA = {"mood": {"type": "String", "description": "One word mood"}}
+SCHEMA = {"type": "object", "properties": {"mood": {"type": "string", "description": "One word mood"}}}
 
 
 # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ def test_submit_extract_video_data_json(client):
 
 def test_submit_extract_video_data_schema_file(client, tmp_path):
     schema_file = tmp_path / "schema.yml"
-    schema_file.write_text("mood:\n  type: String\n  description: One word mood\n")
+    schema_file.write_text("type: object\nproperties:\n  mood:\n    type: string\n    description: One word mood\n")
     with patch.object(client, "_request", return_value=accepted("extract_video")) as req:
         client.submit_extract_video_data(
             video_url="https://example.com/v",
@@ -589,7 +589,7 @@ def test_no_method_calls_synchronous_speech_to_text_endpoints(client, no_sleep, 
         return resp
 
     schema_file = tmp_path / "s.json"
-    schema_file.write_text('{"a": {"type": "Integer", "description": "a"}}')
+    schema_file.write_text('{"type": "object", "properties": {"a": {"type": "integer", "description": "a"}}}')
     with patch.object(client.session, "request", side_effect=fake_request):
         client.transcribe_video(video_url="https://example.com/v")
         client.transcribe_video(video_url="https://example.com/v", all_videos=True)
