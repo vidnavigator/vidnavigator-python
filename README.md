@@ -348,7 +348,7 @@ for scene in resp.data.scenes or []:
 
 `resp.data.scenes` holds the same scenes as [`watch_video`](#watch). When the video has no transcript, or no picture to read, the analysis is made from the other source and `resp.data.transcript_error` or `resp.data.scenes_error` says why.
 
-The scenes are billed per frame analyzed, on top of the analysis: 1 credit per 1,000 frames, with at least 334 frames per hour of video.
+The scenes are billed per frame analyzed, on top of the analysis: 1 credit per 2,000 frames, with at least 667 frames per hour of video.
 
 For a long video, run the same analysis as a [background job](#background-jobs), which has no duration limit:
 
@@ -1277,7 +1277,7 @@ except ScenesNotAvailableError as exc:
         client.analyze_file_scenes(file_id)   # start them, then call again once completed
 ```
 
-The frames of a file are charged once, when its scenes are analyzed (1 credit per 1,000 frames, with at least 334 frames per hour of video). Using them afterwards adds no frame charge.
+The frames of a file are charged once, when its scenes are analyzed (1 credit per 2,000 frames, with at least 667 frames per hour of video). Using them afterwards adds no frame charge.
 
 ### Retrieve a file and its transcript
 
