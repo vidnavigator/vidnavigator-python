@@ -804,8 +804,8 @@ class TweetStatementData(BaseModel):
     quoted_tweet_text: Optional[str] = Field(None, alias="quoted_tweet_text")
     quoted_media_summary: Optional[str] = Field(None, alias="quoted_media_summary")
     # With include_scenes: the frames read to see what the post's videos show, and,
-    # when a video's picture could not be read (it is then summarized from its
-    # transcript alone), why.
+    # when a video's picture could not be read (that video is then used through
+    # its transcript alone, when it has one), why.
     frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
     scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
 
