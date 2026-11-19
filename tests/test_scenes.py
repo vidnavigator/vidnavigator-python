@@ -1,4 +1,4 @@
-"""Unit tests for the scenes (`include_scenes`): analysis, extraction, files, the background analysis (mocked HTTP).
+"""Unit tests for the scenes (`include_scenes`): extraction and files (mocked HTTP).
 
 The payloads are trimmed copies of real answers of the API.
 """
@@ -12,15 +12,11 @@ from vidnavigator import (
     AsyncJob,
     AsyncVidNavigatorClient,
     BadRequestError,
-    Job,
     ScenesNotAvailableError,
     VidNavigatorClient,
-    VidNavigatorError,
 )
 from vidnavigator.exceptions import error_from_response
 from vidnavigator.models import (
-    AnalysisResponse,
-    AnalyzeVideoJobResponse,
     ExtractionApiResponse,
     FileResponse,
     FileScenesResponse,
@@ -36,30 +32,13 @@ SCENES = [
     {"start": 2.0, "end": 6.0, "description": "A hand tips shredded chicken into a glass bowl.",
      "on_screen_text": "500 g FRANGO DESFIADO COZIDO"},
 ]
-ANALYSIS = {
-    "summary": "How to make a creamy chicken pâté.",
-    "query_answer": {"answer": "Chicken 500 g; mayonnaise 300 g.", "best_segment_index": 5,
-                     "relevant_segments": ["5:6", "9"]},
-}
-ANALYSIS_WITH_SCENES = {
-    "status": "success",
-    "data": {
-        "video_info": {"title": "Patê de frango", "duration": 79},
-        "transcript": [{"text": "Música", "start": 0.0, "end": 4.0}],
-        "transcript_analysis": ANALYSIS,
-        "scenes": SCENES,
-        "frames_analyzed": 30,
-    },
-    "usage": {
-        "charges": [
-            {"service_type": "standard_request", "quantity": 1.0, "credits": 0.0001},
-            {"service_type": "frame_analysis", "quantity": 30.0, "credits": 0.03},
-            {"service_type": "analysis_request", "quantity": 1.0, "credits": 0.01},
-        ],
-        "total_credits": 0.0401,
-    },
-}
 SCHEMA = {"type": "object", "properties": {"dish": {"type": "string", "description": "Name of the dish"}}}
+FILE_EXTRACTION_WITH_SCENES = {
+    "status": "success",
+    "data": {"dish": "PATÊ DE FRANGO CREMOSO"},
+    "file_info": {"id": "f1", "scenes_status": "completed"},
+    "frames_analyzed": 30,
+}
 NO_SCENES = {
     "status": "error", "error": "scenes_not_available", "error_code": "scenes_not_available",
     "message": "This file has no scenes yet. Start their analysis with POST /v1/file/f1/scenes, "
@@ -71,105 +50,6 @@ NO_SCENES = {
 @pytest.fixture
 def client():
     return VidNavigatorClient(api_key="test_key")
-
-
-# ---------------------------------------------------------------------------
-# Analysis of an online video
-# ---------------------------------------------------------------------------
-
-def test_analyze_video_with_scenes(client):
-    with patch.object(client, "_request", return_value=ANALYSIS_WITH_SCENES) as req:
-        resp = client.analyze_video(video_url=VIDEO, query="How much chicken?", include_scenes=True, include_usage=True)
-    assert isinstance(resp, AnalysisResponse)
-    assert req.call_args[0] == ("POST", "/analyze/video")
-    assert req.call_args[1]["json_body"] == {
-        "video_url": VIDEO, "transcript_text": False, "include_usage": True,
-        "query": "How much chicken?", "include_scenes": True,
-    }
-    assert resp.data.frames_analyzed == 30
-    assert all(isinstance(scene, VideoScene) for scene in resp.data.scenes)
-    assert resp.data.scenes[1].on_screen_text == "500 g FRANGO DESFIADO COZIDO"
-    assert resp.data.transcript_analysis.query_answer.answer.startswith("Chicken 500 g")
-    assert resp.data.scenes_error is None and resp.data.transcript_error is None
-    assert [charge.service_type for charge in resp.usage.charges] == [
-        "standard_request", "frame_analysis", "analysis_request"]
-
-
-def test_analyze_video_without_scenes_sends_what_it_always_sent(client):
-    raw = {"status": "success", "data": {"video_info": {"title": "t"}, "transcript": [],
-                                         "transcript_analysis": {"summary": "A summary"}}}
-    with patch.object(client, "_request", return_value=raw) as req:
-        resp = client.analyze_video(video_url=VIDEO)
-    assert req.call_args[1]["json_body"] == {"video_url": VIDEO, "transcript_text": False, "include_usage": False}
-    # Scenes that were not asked for are absent, not an empty list.
-    assert resp.data.scenes is None and resp.data.frames_analyzed is None
-
-
-def test_a_missing_source_is_told_and_the_other_one_is_used(client):
-    raw = {"status": "success", "data": {
-        "video_info": {"title": "t"}, "transcript": [], "transcript_analysis": {"summary": "From the picture."},
-        "transcript_error": {"error": "transcript_not_available", "message": "No transcript found for this video."},
-        "scenes": SCENES, "frames_analyzed": 2}}
-    with patch.object(client, "_request", return_value=raw):
-        resp = client.analyze_video(video_url=VIDEO, include_scenes=True)
-    assert resp.data.transcript_error.error == "transcript_not_available"
-    assert len(resp.data.scenes) == 2
-
-    raw = {"status": "success", "data": {
-        "video_info": {"title": "t"}, "transcript": [{"text": "Hello", "start": 0, "end": 1}],
-        "transcript_analysis": {"summary": "From the speech."},
-        "scenes_error": {"error": "frames_not_available", "message": "This video has no picture we can read."}}}
-    with patch.object(client, "_request", return_value=raw):
-        resp = client.analyze_video(video_url=VIDEO, include_scenes=True)
-    assert resp.data.scenes_error.error == "frames_not_available"
-    assert resp.data.scenes is None
-
-
-# ---------------------------------------------------------------------------
-# The same analysis as a background job
-# ---------------------------------------------------------------------------
-
-def test_submit_analyze_video_returns_handle(client):
-    with patch.object(client, "_request", return_value=accepted("analyze/video")) as req:
-        handle = client.submit_analyze_video(video_url=VIDEO, query="How much chicken?", include_scenes=True,
-                                             webhook_url="https://example.com/hook")
-    assert isinstance(handle, Job)
-    assert handle.job_type == "analyze_video" and handle.task_id == "task_1"
-    req.assert_called_once_with(
-        "POST", "/analyze/video/async",
-        json_body={"video_url": VIDEO, "transcript_text": False, "query": "How much chicken?",
-                   "include_scenes": True, "webhook_url": "https://example.com/hook"},
-    )
-
-
-def test_submit_analyze_video_minimal_body(client):
-    with patch.object(client, "_request", return_value=accepted("analyze/video")) as req:
-        client.submit_analyze_video(video_url=VIDEO)
-    assert req.call_args[1]["json_body"] == {"video_url": VIDEO, "transcript_text": False}
-
-
-def test_analysis_job_result_is_an_analysis_response(client):
-    handle = client.resume_job("analyze_video", "task_1")
-    done = job("analyze_video", "completed", result=ANALYSIS_WITH_SCENES["data"], usage=ANALYSIS_WITH_SCENES["usage"])
-    with patch.object(client, "_request", return_value=done) as req:
-        resp = handle.result(timeout=5, include_usage=True)
-    assert req.call_args[0] == ("GET", "/analyze/video/task_1")
-    assert isinstance(resp, AnalysisResponse)
-    assert resp.data.frames_analyzed == 30 and len(resp.data.scenes) == 2
-    assert resp.usage.total_credits == 0.0401
-    with patch.object(client, "_request", return_value=done):
-        polled = handle.refresh()
-    assert isinstance(polled, AnalyzeVideoJobResponse) and polled.data.result.frames_analyzed == 30
-
-
-def test_a_failed_analysis_job_raises_the_api_error(client):
-    handle = client.resume_job("analyze_video", "task_1")
-    failed = job("analyze_video", "failed", error={
-        "error": "video_unavailable", "message": "This video is unavailable or was removed.", "http_status": 404})
-    with patch.object(client, "_request", return_value=failed):
-        with pytest.raises(VidNavigatorError) as raised:
-            handle.result(timeout=5)
-    assert raised.value.error_code == "video_unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -193,6 +73,33 @@ def test_extract_video_data_without_scenes_sends_no_include_scenes(client):
     with patch.object(client, "_request", return_value=accepted("extract/video")) as req:
         client.submit_extract_video_data(video_url=VIDEO, schema=SCHEMA)
     assert "include_scenes" not in req.call_args[1]["json_body"]
+
+
+def test_extract_video_job_result_carries_the_scenes(client):
+    handle = client.resume_job("extract_video", "task_1")
+    done = job("extract_video", "completed", result={"dish": "PATÊ DE FRANGO CREMOSO"})
+    done["data"]["frames_analyzed"] = 30
+    with patch.object(client, "_request", return_value=done) as req:
+        resp = handle.result(timeout=5)
+    assert req.call_args[0] == ("GET", "/extract/video/task_1")
+    assert isinstance(resp, ExtractionApiResponse)
+    assert resp.frames_analyzed == 30 and resp.scenes_error is None and resp.transcript_error is None
+
+
+def test_a_missing_source_is_told_and_the_other_one_is_used(client):
+    raw = {"status": "success", "data": {"dish": "PATÊ DE FRANGO CREMOSO"}, "frames_analyzed": 2,
+           "transcript_error": {"error": "transcript_not_available", "message": "No transcript found for this video."}}
+    with patch.object(client, "_request", return_value=raw):
+        resp = client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True)
+    assert resp.transcript_error.error == "transcript_not_available"
+    assert resp.frames_analyzed == 2
+
+    raw = {"status": "success", "data": {"dish": "Pâté"},
+           "scenes_error": {"error": "frames_not_available", "message": "This video has no picture we can read."}}
+    with patch.object(client, "_request", return_value=raw):
+        resp = client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True)
+    assert resp.scenes_error.error == "frames_not_available"
+    assert resp.frames_analyzed is None
 
 
 def test_extract_file_data_with_scenes_json_and_schema_file(client, tmp_path):
@@ -248,6 +155,7 @@ def test_get_file_carries_the_scenes_once_they_are_there(client):
         resp = client.get_file("f1")
     assert isinstance(resp, FileResponse)
     assert resp.data.file_info.scenes_status == "completed"
+    assert all(isinstance(scene, VideoScene) for scene in resp.data.scenes)
     assert resp.data.scenes[0].on_screen_text == "PATÊ DE FRANGO CREMOSO" and resp.data.frames_analyzed == 30
 
 
@@ -262,15 +170,6 @@ def test_a_file_with_no_picture_says_why(client):
     assert resp.data.file_info.scenes_status == "failed"
     assert resp.data.file_info.scenes_error.error == "frames_not_available"
     assert resp.data.scenes is None
-
-
-def test_analyze_file_with_scenes(client):
-    raw = {"status": "success", "data": {"file_info": {"id": "f1", "scenes_status": "completed"}, "transcript": [],
-                                         "transcript_analysis": ANALYSIS, "scenes": SCENES, "frames_analyzed": 30}}
-    with patch.object(client, "_request", return_value=raw) as req:
-        resp = client.analyze_file(file_id="f1", query="How much chicken?", include_scenes=True)
-    assert req.call_args[1]["json_body"]["include_scenes"] is True
-    assert len(resp.data.scenes) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -292,15 +191,14 @@ def test_scenes_not_available_is_its_own_error():
 def test_the_usual_way_to_get_the_scenes_of_a_file(client):
     """Ask, be told there are none, start them, ask again."""
     started = {"status": "success", "data": {"file_id": "f1", "scenes_status": "processing", "message": "started"}}
-    answer = {"status": "success", "data": {"file_info": {"id": "f1"}, "transcript": [],
-                                            "transcript_analysis": ANALYSIS, "scenes": SCENES, "frames_analyzed": 30}}
+    answer = FILE_EXTRACTION_WITH_SCENES
     with patch.object(client, "_request", side_effect=[error_from_response(409, NO_SCENES), started, answer]) as req:
         with pytest.raises(ScenesNotAvailableError) as raised:
-            client.analyze_file(file_id="f1", include_scenes=True)
+            client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True)
         assert raised.value.scenes_status == "none"
         assert client.analyze_file_scenes("f1").data.scenes_status == "processing"
-        assert client.analyze_file(file_id="f1", include_scenes=True).data.frames_analyzed == 30
-    assert [call[0][1] for call in req.call_args_list] == ["/analyze/file", "/file/f1/scenes", "/analyze/file"]
+        assert client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True).frames_analyzed == 30
+    assert [call[0][1] for call in req.call_args_list] == ["/extract/file", "/file/f1/scenes", "/extract/file"]
 
 
 def test_an_audio_file_is_refused_when_its_scenes_are_asked():
@@ -318,19 +216,19 @@ def test_async_client_has_the_same_methods():
     async def go():
         client = AsyncVidNavigatorClient(api_key="test_key")
         try:
-            with patch.object(client, "_request", return_value=ANALYSIS_WITH_SCENES) as req:
-                analysis = await client.analyze_video(video_url=VIDEO, include_scenes=True)
+            with patch.object(client, "_request", return_value=FILE_EXTRACTION_WITH_SCENES) as req:
+                extraction = await client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True)
             sent = req.call_args[1]["json_body"]
-            with patch.object(client, "_request", return_value=accepted("analyze/video")):
-                handle = await client.submit_analyze_video(video_url=VIDEO, include_scenes=True)
+            with patch.object(client, "_request", return_value=accepted("extract/video")):
+                handle = await client.submit_extract_video_data(video_url=VIDEO, schema=SCHEMA, include_scenes=True)
             started = {"status": "success", "data": {"file_id": "f1", "scenes_status": "completed", "message": "there"}}
             with patch.object(client, "_request", return_value=started) as req:
                 scenes = await client.analyze_file_scenes("f1")
-            return analysis, sent, handle, scenes, req.call_args[0]
+            return extraction, sent, handle, scenes, req.call_args[0]
         finally:
             await client.aclose()
 
-    analysis, sent, handle, scenes, call = asyncio.run(go())
-    assert analysis.data.frames_analyzed == 30 and sent["include_scenes"] is True
-    assert isinstance(handle, AsyncJob) and handle.job_type == "analyze_video"
+    extraction, sent, handle, scenes, call = asyncio.run(go())
+    assert extraction.frames_analyzed == 30 and sent["include_scenes"] is True
+    assert isinstance(handle, AsyncJob) and handle.job_type == "extract_video"
     assert scenes.data.scenes_status == "completed" and call == ("POST", "/file/f1/scenes")

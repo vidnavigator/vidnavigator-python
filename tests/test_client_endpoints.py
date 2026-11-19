@@ -11,7 +11,6 @@ from vidnavigator.models import (
     TranscribeAllVideosResponse,
     FilesListResponse,
     FileResponse,
-    AnalysisResponse,
     VideoSearchResponse,
     FileSearchResponse,
     FileNamespacesResponse,
@@ -210,55 +209,6 @@ def test_get_file_with_transcript_text(client):
     assert fi.namespaces[1].name == "Calls"
     _, kw = req.call_args
     assert kw["params"] == {"transcript_text": "true"}
-
-
-# ---------------------------------------------------------------------------
-# Analysis
-# ---------------------------------------------------------------------------
-
-ANALYSIS_RAW = {
-    "status": "success",
-    "data": {
-        "video_info": {"title": "Test"},
-        "transcript": "full text here",
-        "transcript_analysis": {
-            "summary": "A summary",
-            "query_answer": {
-                "answer": "42",
-                "best_segment_index": 0,
-                "relevant_segments": ["seg1"],
-            },
-        },
-    },
-}
-
-
-def test_analyze_video(client):
-    with patch.object(client, "_request", return_value=ANALYSIS_RAW) as req:
-        resp = client.analyze_video(
-            video_url="https://example.com/v",
-            query="what?",
-            transcript_text=True,
-        )
-    assert isinstance(resp, AnalysisResponse)
-    assert resp.data.transcript_analysis.summary == "A summary"
-    assert resp.data.transcript_analysis.query_answer.answer == "42"
-    _, kw = req.call_args
-    assert kw["json_body"]["transcript_text"] is True
-
-
-def test_analyze_file(client):
-    raw = {
-        "status": "success",
-        "data": {
-            "file_info": {"id": "f1"},
-            "transcript": [],
-            "transcript_analysis": {"summary": "File summary"},
-        },
-    }
-    with patch.object(client, "_request", return_value=raw):
-        resp = client.analyze_file(file_id="f1")
-    assert isinstance(resp, AnalysisResponse)
 
 
 # ---------------------------------------------------------------------------
@@ -706,6 +656,53 @@ def test_get_tweet_statement(client, no_sleep):
         ("POST", "/tweet/statement/async"),
         {"json_body": {"tweet_id": "1234567890"}},
     )
+    assert resp.data.frames_analyzed is None and resp.data.scenes_error is None
+
+
+def test_get_tweet_statement_with_scenes(client, no_sleep):
+    data = {
+        "final_statement": "The author claims the rocket landed.",
+        "tweet_text": "It landed!",
+        "tweet_media_summary": "A rocket lands on a pad; the caption reads LANDING CONFIRMED.",
+        "frames_analyzed": 23,
+    }
+    responses = [accepted("tweet_statement"), job("tweet_statement", "completed", result=data)]
+    with patch.object(client, "_request", side_effect=responses) as req:
+        resp = client.get_tweet_statement(tweet_id="1234567890", include_scenes=True)
+    assert req.call_args_list[0] == (
+        ("POST", "/tweet/statement/async"),
+        {"json_body": {"tweet_id": "1234567890", "include_scenes": True}},
+    )
+    assert isinstance(resp, TweetStatementResponse)
+    assert resp.data.frames_analyzed == 23 and resp.data.scenes_error is None
+
+
+def test_submit_tweet_statement_include_scenes_sent_only_when_true(client):
+    with patch.object(client, "_request", return_value=accepted("tweet_statement")) as req:
+        handle = client.submit_tweet_statement(tweet_id="1", include_scenes=True, webhook_url="https://h.example/x")
+        client.submit_tweet_statement(tweet_id="2", include_scenes=False)
+        client.submit_tweet_statement(tweet_id="3")
+    assert isinstance(handle, Job) and handle.job_type == "tweet_statement"
+    bodies = [call[1]["json_body"] for call in req.call_args_list]
+    assert bodies == [
+        {"tweet_id": "1", "include_scenes": True, "webhook_url": "https://h.example/x"},
+        {"tweet_id": "2"},
+        {"tweet_id": "3"},
+    ]
+
+
+def test_tweet_statement_scenes_error(client, no_sleep):
+    data = {
+        "final_statement": "The author shares a clip.",
+        "frames_analyzed": 0,
+        "scenes_error": {"error": "frames_not_available", "message": "The video's picture could not be read."},
+    }
+    responses = [accepted("tweet_statement"), job("tweet_statement", "completed", result=data)]
+    with patch.object(client, "_request", side_effect=responses):
+        resp = client.tweet_statement(tweet_id="1234567890", include_scenes=True)
+    assert resp.data.frames_analyzed == 0
+    assert resp.data.scenes_error.error == "frames_not_available"
+    assert resp.data.scenes_error.message.startswith("The video's picture")
 
 
 # ---------------------------------------------------------------------------

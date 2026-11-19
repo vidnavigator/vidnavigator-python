@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/2.7.0"
+USER_AGENT = "vidnavigator-python/3.0.0"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -262,47 +262,8 @@ def analyze_file_scenes(file_id: str) -> Request:
 
 
 # ---------------------------------------------------------------------------
-# Analysis and extraction
+# Extraction
 # ---------------------------------------------------------------------------
-
-def _analyze(path: str, key: str, value: str, query: Optional[str], transcript_text: bool,
-             include_usage: bool, include_scenes: bool = False) -> Request:
-    payload: Dict[str, Any] = {key: value, "transcript_text": transcript_text, "include_usage": include_usage}
-    if query:
-        payload["query"] = query
-    if include_scenes:
-        payload["include_scenes"] = True
-    return _json("POST", path, payload, models.AnalysisResponse)
-
-
-def analyze_video(*, video_url: str, query: Optional[str] = None, transcript_text: bool = False,
-                  include_usage: bool = False, include_scenes: bool = False) -> Request:
-    return _analyze("/analyze/video", "video_url", video_url, query, transcript_text, include_usage,
-                    include_scenes)
-
-
-def submit_analyze_video(
-    *,
-    video_url: str,
-    query: Optional[str] = None,
-    transcript_text: bool = False,
-    include_scenes: bool = False,
-    webhook_url: Optional[str] = None,
-) -> Request:
-    payload: Dict[str, Any] = {"video_url": video_url, "transcript_text": transcript_text}
-    if query:
-        payload["query"] = query
-    if include_scenes:
-        payload["include_scenes"] = True
-    _with_optional(payload, webhook_url=webhook_url)
-    return _submit("analyze_video", _json("POST", "/analyze/video/async", payload, models.AsyncJobSubmitResponse))
-
-
-def analyze_file(*, file_id: str, query: Optional[str] = None, transcript_text: bool = False,
-                 include_usage: bool = False, include_scenes: bool = False) -> Request:
-    return _analyze("/analyze/file", "file_id", file_id, query, transcript_text, include_usage,
-                    include_scenes)
-
 
 def submit_extract_video_data(
     *,
@@ -566,8 +527,18 @@ def health_check() -> Request:
     return Request("GET", "/health", {}, _model(models.HealthResponse))
 
 
-def submit_tweet_statement(*, tweet_id: str, webhook_url: Optional[str] = None) -> Request:
-    payload = _with_optional({"tweet_id": tweet_id}, webhook_url=webhook_url)
+def submit_tweet_statement(
+    *,
+    tweet_id: str,
+    include_scenes: bool = False,
+    webhook_url: Optional[str] = None,
+) -> Request:
+    payload = _with_optional(
+        {"tweet_id": tweet_id},
+        # Sent only when asked for: a request that does not use the scenes is the one it always was.
+        include_scenes=True if include_scenes else None,
+        webhook_url=webhook_url,
+    )
     return _submit("tweet_statement", _json("POST", "/tweet/statement/async", payload,
                                             models.AsyncJobSubmitResponse))
 

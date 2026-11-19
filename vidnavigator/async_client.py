@@ -277,58 +277,6 @@ class AsyncVidNavigatorClient:
     async def get_file_url(self, file_id: str) -> Dict[str, Any]:
         return await self._call(_core.file_action("GET", f"/file/{file_id}/url"))
 
-    # Analysis ---------------------------------------------------------------------
-    async def analyze_video(
-        self,
-        *,
-        video_url: str,
-        query: Optional[str] = None,
-        transcript_text: bool = False,
-        include_usage: bool = False,
-        include_scenes: bool = False,
-    ) -> models.AnalysisResponse:
-        """Summarize an online video and, with *query*, answer a question about it.
-
-        ``include_scenes=True`` also uses what the video shows.
-        """
-        return await self._call(_core.analyze_video(
-            video_url=video_url, query=query, transcript_text=transcript_text,
-            include_usage=include_usage, include_scenes=include_scenes,
-        ))
-
-    async def submit_analyze_video(
-        self,
-        *,
-        video_url: str,
-        query: Optional[str] = None,
-        transcript_text: bool = False,
-        include_scenes: bool = False,
-        webhook_url: Optional[str] = None,
-    ) -> AsyncJob:
-        """Start the analysis of an online video as a background job and return its handle."""
-        return await self._submit(_core.submit_analyze_video(
-            video_url=video_url, query=query, transcript_text=transcript_text,
-            include_scenes=include_scenes, webhook_url=webhook_url,
-        ))
-
-    async def analyze_file(
-        self,
-        *,
-        file_id: str,
-        query: Optional[str] = None,
-        transcript_text: bool = False,
-        include_usage: bool = False,
-        include_scenes: bool = False,
-    ) -> models.AnalysisResponse:
-        """Summarize an uploaded file and, with *query*, answer a question about it.
-
-        ``include_scenes=True`` also uses the scenes kept with the file.
-        """
-        return await self._call(_core.analyze_file(
-            file_id=file_id, query=query, transcript_text=transcript_text,
-            include_usage=include_usage, include_scenes=include_scenes,
-        ))
-
     # Extraction -------------------------------------------------------------------
     async def submit_extract_video_data(
         self,
@@ -697,21 +645,38 @@ class AsyncVidNavigatorClient:
 
     # Tweet analysis ---------------------------------------------------------------
     async def submit_tweet_statement(
-        self, *, tweet_id: str, webhook_url: Optional[str] = None,
+        self,
+        *,
+        tweet_id: str,
+        include_scenes: bool = False,
+        webhook_url: Optional[str] = None,
     ) -> AsyncJob:
         """Start a tweet claim analysis job and return its handle immediately."""
-        return await self._submit(_core.submit_tweet_statement(tweet_id=tweet_id, webhook_url=webhook_url))
+        return await self._submit(_core.submit_tweet_statement(
+            tweet_id=tweet_id,
+            include_scenes=include_scenes,
+            webhook_url=webhook_url,
+        ))
 
     async def get_tweet_statement(
         self,
         *,
         tweet_id: str,
         include_usage: bool = False,
+        include_scenes: bool = False,
         webhook_url: Optional[str] = None,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TweetStatementResponse:
-        """Analyze the claim made in an X/Twitter tweet and wait for the result."""
-        job = await self.submit_tweet_statement(tweet_id=tweet_id, webhook_url=webhook_url)
+        """Analyze the claim made in an X/Twitter tweet and wait for the result.
+
+        ``include_scenes=True`` also reads what the post's video and the quoted
+        post's video show. See :meth:`VidNavigatorClient.get_tweet_statement`.
+        """
+        job = await self.submit_tweet_statement(
+            tweet_id=tweet_id,
+            include_scenes=include_scenes,
+            webhook_url=webhook_url,
+        )
         return await job.result(timeout=timeout, include_usage=include_usage)
 
     # Convenience ------------------------------------------------------------------

@@ -120,27 +120,6 @@ def _coerce_person_place_list(
     ]
 
 
-class QueryAnswerDetail(BaseModel):
-    answer: Optional[str] = None
-    best_segment_index: Optional[int] = Field(None, alias="best_segment_index")
-    relevant_segments: Optional[List[str]] = Field(None, alias="relevant_segments")
-
-
-class AnalysisResult(BaseModel):
-    summary: Optional[str] = None
-    people: Optional[List[Any]] = None
-    places: Optional[List[Any]] = None
-    key_subjects: Optional[List[Any]] = Field(None, alias="key_subjects")
-    timestamp: Optional[float] = None
-    relevant_text: Optional[str] = Field(None, alias="relevant_text")
-    query_answer: Optional[QueryAnswerDetail] = Field(None, alias="query_answer")
-
-    @_pre_validator("people", "places", "key_subjects")
-    @classmethod
-    def _coerce_lists(cls, v):
-        return _coerce_person_place_list(v)
-
-
 class VideoSearchResult(BaseModel):
     title: Optional[str] = None
     url: Optional[str] = None
@@ -291,7 +270,7 @@ class UsageBlock(BaseModel):
     """Per-call usage disclosure returned when ``include_usage=true``.
 
     Lists every meter that fired (``charges``) and the net credits deducted.
-    For LLM endpoints (extract/analyze/youtube search) the ``analysis_request``
+    For LLM endpoints (extract/youtube search) the ``analysis_request``
     charge carries a nested :class:`UsageTokens`. ``/extract/*`` responses may
     also echo the token counts as flat ``prompt_tokens`` / ``completion_tokens``
     / ``total_tokens`` fields, which remain accessible here for convenience.
@@ -824,6 +803,11 @@ class TweetStatementData(BaseModel):
     tweet_media_summary: Optional[str] = Field(None, alias="tweet_media_summary")
     quoted_tweet_text: Optional[str] = Field(None, alias="quoted_tweet_text")
     quoted_media_summary: Optional[str] = Field(None, alias="quoted_media_summary")
+    # With include_scenes: the frames read to see what the post's videos show, and,
+    # when a video's picture could not be read (it is then summarized from its
+    # transcript alone), why.
+    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
+    scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
 
 
 class HealthEndpoint(BaseModel):
@@ -895,32 +879,6 @@ class TranscribeAllVideosData(BaseModel):
 class TranscribeAllVideosResponse(BaseModel):
     status: str
     data: TranscribeAllVideosData
-    usage: Optional[UsageBlock] = None
-
-
-class AnalysisData(BaseModel):
-    """An analysis: the summary and, with a query, the answer.
-
-    The last four fields belong to ``include_scenes=True``. ``scenes`` is then
-    what the video or file shows and ``frames_analyzed`` the number of frames
-    read for it; ``scenes`` stays ``None`` when the scenes were not asked for.
-    When one of the two sources is missing the analysis is made from the other:
-    ``scenes_error`` or ``transcript_error`` says which, and why.
-    """
-
-    video_info: Optional[VideoInfo] = Field(None, alias="video_info")
-    file_info: Optional[FileInfo] = Field(None, alias="file_info")
-    transcript: Optional[TranscriptOutput] = None
-    transcript_analysis: AnalysisResult = Field(alias="transcript_analysis")
-    transcript_error: Optional[WatchTranscriptError] = Field(None, alias="transcript_error")
-    scenes: Optional[List[VideoScene]] = None
-    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
-    scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
-
-
-class AnalysisResponse(BaseModel):
-    status: str
-    data: AnalysisData
     usage: Optional[UsageBlock] = None
 
 
@@ -1169,12 +1127,6 @@ class ExtractVideoJob(_AsyncJobBase):
     evidence: Optional[Dict[str, List[FieldEvidence]]] = None
 
 
-class AnalyzeVideoJob(_AsyncJobBase):
-    """Body of ``GET /analyze/video/{task_id}``; ``result`` mirrors the ``data`` block of ``POST /analyze/video``."""
-
-    result: Optional[AnalysisData] = None
-
-
 class TweetStatementJob(_AsyncJobBase):
     """Body of ``GET /tweet/statement/{task_id}``; ``result`` mirrors the sync ``data`` block."""
 
@@ -1202,12 +1154,6 @@ class WatchJobResponse(BaseModel):
 class ExtractVideoJobResponse(BaseModel):
     status: str
     data: ExtractVideoJob
-    usage: Optional[UsageBlock] = None
-
-
-class AnalyzeVideoJobResponse(BaseModel):
-    status: str
-    data: AnalyzeVideoJob
     usage: Optional[UsageBlock] = None
 
 
