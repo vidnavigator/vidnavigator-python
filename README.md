@@ -38,7 +38,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 
 | Platform | Transcript | Transcribe (speech-to-text) | Watch (scenes) | Carousel |
 |----------|:----------:|:---------------------------:|:--------------:|:--------:|
-| YouTube | Yes | - | Yes | - |
+| YouTube | Yes | Yes | Yes | - |
 | Instagram Reels | - | Yes | Yes | Yes |
 | Instagram Posts | - | Yes | Yes | Yes (`all_videos`) |
 | TikTok | Yes | Yes | Yes | - |
@@ -259,7 +259,7 @@ for segment in resp.data.transcript or []:
 print(resp.data.frames_analyzed)  # number of frames that were analyzed
 ```
 
-The transcript comes from the platform's captions when it has them, and from speech-to-text otherwise. A video without speech is not an error: `transcript` is empty, `transcript_error` says why, and the scenes are returned. The same goes for a YouTube video without captions.
+The transcript comes from the platform's captions when it has them, and from speech-to-text otherwise. A YouTube video without captions is transcribed from its audio, like the others. A video without speech is not an error: `transcript` is empty, `transcript_error` says why, and the scenes are returned.
 
 ```python
 resp = client.watch_video(video_url=url)
@@ -479,6 +479,15 @@ resp = client.extract_video_data(
 )
 print(resp.data)               # {"mood": "upbeat", "topics": ["love", "commitment"]}
 print(resp.extraction_schema)  # {"type": "object", "properties": {"mood": {...}, "topics": {...}}, ...}
+```
+
+### Where each value comes from
+
+Every extraction says, beside `data`, the moments of the video each value was taken from: `resp.evidence` maps a field to its moments, each with `start` and `end` in seconds and `in_` (JSON key `in`): `"speech"` (said), `"picture"` (shown or written on screen, with `include_scenes=True`) or `"post"` (the post's own text, without times). A field left empty has no entry.
+
+```python
+for moment in resp.evidence.get("topics", []):
+    print(moment.in_, moment.start, moment.end)   # speech 12.5 31.0
 ```
 
 ### From a schema file
@@ -1499,6 +1508,11 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 2.7.0
+
+- **[Where each value comes from](#where-each-value-comes-from):** extraction results carry `evidence`, the moments of the video each field was taken from (`FieldEvidence`: `start`, `end`, `in_`), on `ExtractionApiResponse`, `ExtractVideoJob` and the `extract_video.completed` webhook event.
+- **YouTube speech-to-text:** `transcribe_video` takes YouTube videos, and a YouTube video without captions is transcribed by `watch_video` and by `extract_video_data` (`transcribe=True`).
 
 ## What's new in 2.6.0
 

@@ -67,6 +67,7 @@ def _finalize(job_type: str, resp: Any) -> Any:
             frames_analyzed=resp.data.frames_analyzed,
             scenes_error=resp.data.scenes_error,
             transcript_error=resp.data.transcript_error,
+            evidence=resp.data.evidence,
             usage=resp.usage,
             # By its JSON key: the attribute name is not accepted at construction.
             **{"schema": resp.data.extraction_schema},
