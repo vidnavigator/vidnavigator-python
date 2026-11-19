@@ -1001,6 +1001,18 @@ class NamespaceResponse(BaseModel):
     data: Namespace
 
 
+class FieldEvidence(BaseModel):
+    """A moment an extracted value was taken from.
+
+    ``in_`` (JSON key ``in``) is ``"speech"`` (said in the video), ``"picture"`` (shown or written on
+    screen) or ``"post"`` (the post's own text: title, channel, description; no ``start``/``end`` then).
+    """
+
+    start: Optional[float] = None
+    end: Optional[float] = None
+    in_: Optional[str] = Field(None, alias="in")
+
+
 class ExtractionApiResponse(BaseModel):
     """Extracted fields in ``data``. With ``include_scenes=True``, ``frames_analyzed`` is the number of
     frames read; ``scenes_error`` or ``transcript_error`` is set when one of the two sources was missing."""
@@ -1015,6 +1027,8 @@ class ExtractionApiResponse(BaseModel):
     # The schema written from ``what_to_extract`` when the request had none (a JSON Schema,
     # JSON key ``schema``): pass it as ``schema`` in later requests to get the same fields.
     extraction_schema: Optional[Dict[str, Any]] = Field(None, alias="schema")
+    # For each field of ``data`` that has a value, the moments of the video it comes from.
+    evidence: Optional[Dict[str, List[FieldEvidence]]] = None
     usage: Optional[UsageBlock] = None
 
 
@@ -1151,6 +1165,8 @@ class ExtractVideoJob(_AsyncJobBase):
     # The schema written from ``what_to_extract`` when the request had none (a JSON Schema,
     # JSON key ``schema``): pass it as ``schema`` in later requests to get the same fields.
     extraction_schema: Optional[Dict[str, Any]] = Field(None, alias="schema")
+    # For each field of ``result`` that has a value, the moments of the video it comes from.
+    evidence: Optional[Dict[str, List[FieldEvidence]]] = None
 
 
 class AnalyzeVideoJob(_AsyncJobBase):
@@ -1217,6 +1233,8 @@ class WebhookEventData(BaseModel):
     video_info: Optional[Dict[str, Any]] = Field(None, alias="video_info")
     # ``extract_video.completed`` only, when the request had no schema.
     extraction_schema: Optional[Dict[str, Any]] = Field(None, alias="schema")
+    # ``extract_video.completed`` only: the moments each value of ``result`` comes from.
+    evidence: Optional[Dict[str, List[FieldEvidence]]] = None
     error: Optional[AsyncJobError] = None
 
 
