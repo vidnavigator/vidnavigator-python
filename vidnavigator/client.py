@@ -350,72 +350,6 @@ class VidNavigatorClient:
         """Retrieve details (and transcript) for a specific file."""
         return self._call(_core.get_file(file_id, transcript_text=transcript_text))
 
-    # Analysis ---------------------------------------------------------------------
-    def analyze_video(
-        self,
-        *,
-        video_url: str,
-        query: Optional[str] = None,
-        transcript_text: bool = False,
-        include_usage: bool = False,
-        include_scenes: bool = False,
-    ) -> models.AnalysisResponse:
-        """Summarize an online video and, with *query*, answer a question about it.
-
-        With ``include_scenes=True`` the analysis also uses what the video
-        shows (its scenes, with the text readable on screen), so it can answer
-        from the picture and works on a video with no speech. ``.data.scenes``
-        then holds the scenes and ``.data.frames_analyzed`` the frames read.
-        For a long video, :meth:`submit_analyze_video` runs the same analysis
-        as a background job, which has no duration limit.
-        """
-        return self._call(_core.analyze_video(
-            video_url=video_url, query=query, transcript_text=transcript_text,
-            include_usage=include_usage, include_scenes=include_scenes,
-        ))
-
-    def submit_analyze_video(
-        self,
-        *,
-        video_url: str,
-        query: Optional[str] = None,
-        transcript_text: bool = False,
-        include_scenes: bool = False,
-        webhook_url: Optional[str] = None,
-    ) -> Job:
-        """Start the analysis of an online video as a background job and return its handle.
-
-        Same parameters as :meth:`analyze_video`. ``.result()`` on the handle
-        waits for an :class:`~vidnavigator.models.AnalysisResponse`; pass
-        ``include_usage=True`` to it for the charges. Use it for long videos,
-        in particular with ``include_scenes=True``.
-        """
-        return self._submit(_core.submit_analyze_video(
-            video_url=video_url, query=query, transcript_text=transcript_text,
-            include_scenes=include_scenes, webhook_url=webhook_url,
-        ))
-
-    def analyze_file(
-        self,
-        *,
-        file_id: str,
-        query: Optional[str] = None,
-        transcript_text: bool = False,
-        include_usage: bool = False,
-        include_scenes: bool = False,
-    ) -> models.AnalysisResponse:
-        """Summarize an uploaded file and, with *query*, answer a question about it.
-
-        With ``include_scenes=True`` the analysis also uses the scenes kept
-        with the file. They are analyzed once, by :meth:`analyze_file_scenes`
-        or by an upload with ``include_scenes=True``; while the file has none,
-        the call raises :class:`~vidnavigator.ScenesNotAvailableError`.
-        """
-        return self._call(_core.analyze_file(
-            file_id=file_id, query=query, transcript_text=transcript_text,
-            include_usage=include_usage, include_scenes=include_scenes,
-        ))
-
     # Extraction -------------------------------------------------------------------
     def submit_extract_video_data(
         self,
@@ -893,10 +827,7 @@ class VidNavigatorClient:
         max_results: Optional[int] = None,
         include_usage: bool = False,
     ) -> models.VideoSearchResponse:
-        """Deprecated alias for :meth:`search_youtube`.
-
-        The endpoint moved from ``/search/video`` to ``/youtube/search``.
-        """
+        """Deprecated alias for :meth:`search_youtube`, which calls ``/youtube/search``."""
         warnings.warn(
             "search_videos() is deprecated; use search_youtube() instead. "
             "The endpoint moved to /youtube/search.",
@@ -989,8 +920,7 @@ class VidNavigatorClient:
         ``file_info.scenes_status`` with :meth:`get_file`: it goes from
         ``"processing"`` to ``"completed"`` (the scenes are then in
         ``.data.scenes``) or ``"failed"`` (``file_info.scenes_error`` says
-        why). :meth:`analyze_file` and :meth:`extract_file_data` read them with
-        ``include_scenes=True``.
+        why). :meth:`extract_file_data` reads them with ``include_scenes=True``.
 
         Calling it again while the analysis runs, or once it is done, starts
         nothing new: ``.data.scenes_status`` says where it stands. An audio
@@ -1024,21 +954,28 @@ class VidNavigatorClient:
         self,
         *,
         tweet_id: str,
+        include_scenes: bool = False,
         webhook_url: Optional[str] = None,
     ) -> Job:
         """Start a tweet claim analysis job and return its handle immediately.
 
         ``.result()`` on the handle returns a
-        :class:`~vidnavigator.models.TweetStatementResponse`. *webhook_url* is
-        passed through (``""`` opts out of your account default).
+        :class:`~vidnavigator.models.TweetStatementResponse`. Same parameters
+        as :meth:`get_tweet_statement`. *webhook_url* is passed through
+        (``""`` opts out of your account default).
         """
-        return self._submit(_core.submit_tweet_statement(tweet_id=tweet_id, webhook_url=webhook_url))
+        return self._submit(_core.submit_tweet_statement(
+            tweet_id=tweet_id,
+            include_scenes=include_scenes,
+            webhook_url=webhook_url,
+        ))
 
     def get_tweet_statement(
         self,
         *,
         tweet_id: str,
         include_usage: bool = False,
+        include_scenes: bool = False,
         webhook_url: Optional[str] = None,
         timeout: Optional[float] = DEFAULT_JOB_TIMEOUT,
     ) -> models.TweetStatementResponse:
@@ -1046,8 +983,20 @@ class VidNavigatorClient:
 
         Runs as a background job (``POST /tweet/statement/async`` then polling),
         so tweets carrying long videos work too.
+
+        With ``include_scenes=True`` what the post's video and the quoted
+        post's video show (their scenes, with the text readable on screen) is
+        read as well and used with their transcripts, so a video without speech
+        is summarized from its picture. ``.data.frames_analyzed`` is then the
+        number of frames read; ``.data.scenes_error`` is set when a video's
+        picture could not be read (that video is then summarized from its
+        transcript alone).
         """
-        job = self.submit_tweet_statement(tweet_id=tweet_id, webhook_url=webhook_url)
+        job = self.submit_tweet_statement(
+            tweet_id=tweet_id,
+            include_scenes=include_scenes,
+            webhook_url=webhook_url,
+        )
         return job.result(timeout=timeout, include_usage=include_usage)
 
     # Convenience ------------------------------------------------------------------

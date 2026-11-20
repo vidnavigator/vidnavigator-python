@@ -133,13 +133,6 @@ def test_extract_with_auto_transcription(client):
     assert resp.usage.charge_for("analysis_request") is not None
 
 
-def test_analyze_video_tiktok(client):
-    resp = client.analyze_video(
-        video_url=TRANSCRIPT_URLS["tiktok"], query="What is this video about?",
-    )
-    assert resp.data.transcript_analysis.summary
-
-
 def test_tweet_statement_from_url(client):
     tweet_id = re.search(r"/status/(\d+)", TWEET_URL).group(1)
     resp = client.get_tweet_statement(tweet_id=tweet_id, include_usage=True, timeout=JOB_TIMEOUT)

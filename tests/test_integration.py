@@ -116,16 +116,19 @@ def test_transcript_plain_text_with_usage(client):
         assert resp.usage.charges is not None
 
 
-# -- Analysis --------------------------------------------------------------
+# -- Extraction from plain words --------------------------------------------
 
-def test_analyze_video_with_query(client):
-    resp = client.analyze_video(
+def test_extract_video_data_from_what_to_extract_alone(client):
+    resp = client.extract_video_data(
         video_url=TEST_VIDEO_URL,
-        query="What is the main message of this song?",
+        what_to_extract="A three-sentence summary and the answer to: what is the main message of this song?",
         include_usage=True,
+        timeout=ASYNC_JOB_TIMEOUT_SECONDS,
     )
-    analysis = resp.data.transcript_analysis
-    assert analysis.summary
+    assert resp.status == "success"
+    assert resp.data
+    # The schema written from the request comes back, to send as `schema` next time.
+    assert resp.extraction_schema and resp.extraction_schema.get("properties")
 
 
 # -- Search ----------------------------------------------------------------

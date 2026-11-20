@@ -1,6 +1,6 @@
 # VidNavigator Python SDK
 
-The official Python client for the [VidNavigator Developer API](https://docs.vidnavigator.com): transcribe, analyze, search, and extract structured data from video and audio at scale.
+The official Python client for the [VidNavigator Developer API](https://docs.vidnavigator.com): transcribe, watch, search, and extract structured data from video and audio at scale.
 
 [![PyPI version](https://img.shields.io/pypi/v/vidnavigator)](https://pypi.org/project/vidnavigator/)
 [![Python](https://img.shields.io/pypi/pyversions/vidnavigator)](https://pypi.org/project/vidnavigator/)
@@ -11,11 +11,11 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 ## Contents
 
 - [Installation](#installation) · [Authentication](#authentication) · [Quick start](#quick-start) · [Which method should I use?](#which-method-should-i-use)
-- **Online videos:** [Transcripts](#transcripts) · [Watch](#watch) · [AI analysis](#ai-analysis) · [Structured extraction](#structured-extraction) · [Tweet claim analysis](#tweet-claim-analysis)
+- **Online videos:** [Transcripts](#transcripts) · [Watch](#watch) · [Structured extraction](#structured-extraction) · [Tweet claim analysis](#tweet-claim-analysis)
 - **Long-running work:** [Background jobs](#background-jobs) · [Recipes](#recipes) · [Async client](#async-client) · [Webhooks](#webhooks)
 - **TikTok:** [Profile scraping](#tiktok-profile-scraping) · [Keyword search](#tiktok-keyword-search) · [LIVE search](#tiktok-live-search) · [LIVE room](#tiktok-live-room)
 - **Your own files:** [Semantic search](#semantic-search) · [File uploads](#file-uploads) · [Namespaces](#namespaces)
-- **Reference:** [Per-call usage](#per-call-usage) · [Usage & billing](#usage--billing) · [Error handling](#error-handling) · [Configuration](#configuration) · [Upgrading from 1.x](#upgrading-from-1x)
+- **Reference:** [Per-call usage](#per-call-usage) · [Usage & billing](#usage--billing) · [Error handling](#error-handling) · [Configuration](#configuration) · [Upgrading to 3.0](#upgrading-to-30) · [Upgrading from 1.x](#upgrading-from-1x)
 
 ---
 
@@ -25,8 +25,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 |---|:---:|:---:|
 | Transcripts (segments with timestamps or plain text) | Yes | Yes |
 | Scenes: what a video shows, with the text on screen | Yes | -- |
-| AI analysis (summary, people, places, key subjects, Q&A) | Yes | Yes |
-| Structured data extraction (your JSON Schema, or plain words) | Yes | Yes |
+| Structured data extraction: a summary, answers to questions, or the fields of your JSON Schema | Yes | Yes |
 | Semantic search across content | Yes (YouTube) | Yes |
 | File upload, storage, and management | -- | Yes |
 | Namespace organization and scoped search | -- | Yes |
@@ -128,8 +127,8 @@ for scene in resp.data.scenes:
 | Get the captions of a video (fast, cheap) | `get_transcript` | immediately |
 | Transcribe audio when there are no captions (Instagram, TikTok, ...) | `transcribe_video` | when the job finishes |
 | See what a video shows, scene by scene, with its transcript | `watch_video` | when the job finishes |
-| Summarize a video or ask a question about it | `analyze_video` | immediately |
-| Answer from what a video shows as well (text on screen, little or no speech) | `analyze_video(..., include_scenes=True)` | immediately, or `submit_analyze_video` for a long video |
+| Summarize a video or ask a question about it | `extract_video_data(..., what_to_extract="...")` | when the job finishes |
+| Answer from what a video shows as well (text on screen, little or no speech) | `extract_video_data(..., include_scenes=True)` | when the job finishes |
 | Pull specific fields out of a video into a `dict` | `extract_video_data` | when the job finishes |
 | Analyze the claim made in a tweet | `get_tweet_statement` | when the job finishes |
 | List a TikTok profile's videos | `scrape_tiktok_profile` | when the job finishes |
@@ -137,7 +136,7 @@ for scene in resp.data.scenes:
 | Find TikTok LIVE rooms broadcasting now, with their stream URLs | `search_tiktok_live` | when the job finishes |
 | Check one TikTok LIVE room or streamer, with its latest comments | `get_tiktok_live_room` | immediately |
 | Find YouTube videos about a topic | `search_youtube` | immediately |
-| Work with your own audio/video files | `upload_file`, then `get_file`, `analyze_file`, `extract_file_data`, `search_files` | immediately |
+| Work with your own audio/video files | `upload_file`, then `get_file`, `extract_file_data`, `search_files` | immediately |
 | Process **many** videos at once | the `submit_*` version of a job method | a job handle, right away |
 | Call the API from asyncio code (FastAPI, aiohttp, bots, agents) | [`AsyncVidNavigatorClient`](#async-client) | the same results, awaited |
 
@@ -296,85 +295,48 @@ Errors worth handling: `NotFoundError` with `error_code == "frames_not_available
 
 ---
 
-## AI Analysis
-
-Analyze any video or uploaded file. The API returns a summary, identifies people and places, extracts key subjects, and can answer natural-language questions about the content.
-
-### Analyze an online video
-
-```python
-resp = client.analyze_video(
-    video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    query="What is the main message of this song?",
-)
-
-analysis = resp.data.transcript_analysis
-
-print(analysis.summary)
-# "The song is a declaration of unwavering commitment and loyalty..."
-
-print(analysis.query_answer.answer)
-# "The main message is a promise to never give up on someone..."
-
-for person in analysis.people or []:
-    print(f"{person.name} -- {person.context}")
-# "Rick Astley -- Singer and performer of the song"
-
-for subject in analysis.key_subjects or []:
-    print(f"{subject.name} -- {subject.description}")
-# "commitment -- Central theme of never abandoning a loved one"
-```
-
-`query` is optional. Without it you get the summary, people, places and key subjects. Pass `transcript_text=True` to also receive the transcript as one string.
-
-### Use what the video shows
-
-By default the analysis reads what is said. With `include_scenes=True` it also reads what the video **shows**: its scenes, with the text readable on screen. Ask for it when the answer may be on screen rather than spoken (the quantities of a recipe, a price, a slide, a caption), or when the video has little or no speech.
-
-```python
-resp = client.analyze_video(
-    video_url="https://www.dailymotion.com/video/x84243e",
-    query="What are the ingredients and their quantities?",
-    include_scenes=True,
-)
-
-print(resp.data.transcript_analysis.query_answer.answer)
-# "Shredded cooked chicken 500 g; mayonnaise 300 g; requeijão 250 g; ..."
-
-print(resp.data.frames_analyzed)  # 30
-for scene in resp.data.scenes or []:
-    print(f"[{scene.start:.0f}s] {scene.description} | on screen: {scene.on_screen_text}")
-```
-
-`resp.data.scenes` holds the same scenes as [`watch_video`](#watch). When the video has no transcript, or no picture to read, the analysis is made from the other source and `resp.data.transcript_error` or `resp.data.scenes_error` says why.
-
-The scenes are billed per frame analyzed, on top of the analysis: 1 credit per 2,000 frames, with at least 667 frames per hour of video.
-
-For a long video, run the same analysis as a [background job](#background-jobs), which has no duration limit:
-
-```python
-job = client.submit_analyze_video(video_url=url, query="What is shown?", include_scenes=True)
-resp = job.result(include_usage=True)        # an AnalysisResponse, as above
-# later, or from another process: client.resume_job("analyze_video", job.task_id).result()
-```
-
-### Analyze an uploaded file
-
-```python
-resp = client.analyze_file(
-    file_id="your_file_id",
-    query="What are the key action items from this meeting?",
-)
-print(resp.data.transcript_analysis.summary)
-```
-
-`include_scenes=True` works here too, once the scenes of the file have been analyzed: see [Scenes of a file](#scenes-of-a-file).
-
----
-
 ## Structured Extraction
 
-Describe the fields you want, as a standard JSON Schema, and the API fills them in from the video's transcript. It's useful for building pipelines, populating databases, or feeding downstream systems.
+Say what you want from a video, in plain words with `what_to_extract`, as a standard JSON Schema, or both, and the API fills it in from what the video says and, with `include_scenes=True`, what it shows. Use it for a summary or the answer to a question as much as for building pipelines, populating databases, or feeding downstream systems.
+
+### Summarize a video or ask a question about it
+
+```python
+resp = client.extract_video_data(
+    video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    what_to_extract="A three-sentence summary and the answer to: what is the main message of this song?",
+)
+print(resp.data)
+# e.g. {"summary": "The song is a declaration of unwavering commitment...",
+#       "main_message": "A promise to never give up on someone..."}
+```
+
+The fields are named for you, and `resp.extraction_schema` holds the schema written for them (see [Without a schema](#without-a-schema)). To get the same fields every time, name them in a schema, with what you want in each `description`:
+
+```python
+resp = client.extract_video_data(
+    video_url="https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+    schema={
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string", "description": "A three-sentence summary of the video"},
+            "answer": {"type": "string", "description": "The answer to: what is the main message of this song?"},
+            "people": {
+                "type": "array",
+                "description": "The people who appear or are mentioned, each with their role",
+                "items": {"type": "string"},
+            },
+            "key_subjects": {
+                "type": "array",
+                "description": "The main subjects of the video",
+                "items": {"type": "string"},
+            },
+        },
+    },
+)
+print(resp.data["summary"])
+print(resp.data["answer"])
+```
 
 ### From an online video
 
@@ -429,7 +391,9 @@ print(resp.data["ingredients"])  # read from the text on screen: this video only
 print(resp.frames_analyzed)      # 30
 ```
 
-The frames are billed as for [`analyze_video`](#use-what-the-video-shows).
+Ask for the scenes when the answer may be on screen rather than spoken (the quantities of a recipe, a price, a slide, a caption), or when the video has little or no speech. When the video has no transcript, or no picture to read, the fields are extracted from the other source and `resp.transcript_error` or `resp.scenes_error` says why.
+
+The scenes are billed per frame analyzed, on top of the extraction: 1 credit per 2,000 frames, with at least 667 frames per hour of video.
 
 ### Schema format
 
@@ -525,6 +489,15 @@ resp = client.extract_file_data(
 print(resp.data)
 ```
 
+`what_to_extract` alone summarizes a file or answers a question about it, as for a video:
+
+```python
+resp = client.extract_file_data(
+    file_id="your_file_id",
+    what_to_extract="A short summary and the answer to: what are the key action items of this meeting?",
+)
+```
+
 `include_scenes=True` also uses what the file shows, once its scenes have been analyzed: see [Scenes of a file](#scenes-of-a-file).
 
 ### Token usage
@@ -554,6 +527,19 @@ print(resp.data.tweet_media_summary)  # summary of attached video/images, if any
 ```
 
 Videos attached to the tweet (or to the tweet it quotes) are transcribed in full, so this runs as a [background job](#background-jobs) too. `claim_type`, `intent`, `tone`, `emotion` and `authority` are based on the original tweet text only.
+
+With `include_scenes=True`, what the tweet's video and the quoted tweet's video **show** (their scenes, with the text readable on screen) is read as well and used with their transcripts, so a video without speech is summarized from its picture:
+
+```python
+resp = client.get_tweet_statement(tweet_id="1585841080431321088", include_scenes=True)
+
+print(resp.data.tweet_media_summary)
+print(resp.data.frames_analyzed)       # frames read for the scenes
+if resp.data.scenes_error:             # a video's picture could not be read:
+    print(resp.data.scenes_error.error)  # it was summarized from its transcript alone
+```
+
+`include_scenes` is also accepted by `submit_tweet_statement` and `client.tweet_statement.submit(...)`.
 
 ---
 
@@ -1258,7 +1244,7 @@ for r in results.data.results:
 
 ## File Uploads
 
-Upload audio or video files for persistent storage. Once processed, files can be transcribed, analyzed, searched, and used for extraction, just like online videos.
+Upload audio or video files for persistent storage. Once processed, files can be transcribed, searched, and used for extraction, just like online videos.
 
 ### Upload and process
 
@@ -1295,13 +1281,13 @@ for scene in resp.data.scenes or []:
 
 `file_info.scenes_status` is `"none"` (never asked for), `"processing"`, `"completed"` or `"failed"`; when it failed, `file_info.scenes_error` says why (an audio file has no picture: `frames_not_available`).
 
-Once the scenes are there, `analyze_file` and `extract_file_data` use them with `include_scenes=True`. Asked on a file that has none, they raise `ScenesNotAvailableError`:
+Once the scenes are there, `extract_file_data` uses them with `include_scenes=True`. Asked on a file that has none, it raises `ScenesNotAvailableError`:
 
 ```python
 from vidnavigator import ScenesNotAvailableError
 
 try:
-    resp = client.analyze_file(file_id=file_id, query="What is on the label?", include_scenes=True)
+    resp = client.extract_file_data(file_id=file_id, what_to_extract="What is written on the label?", include_scenes=True)
 except ScenesNotAvailableError as exc:
     if exc.scenes_status == "none":
         client.analyze_file_scenes(file_id)   # start them, then call again once completed
@@ -1381,7 +1367,7 @@ client.delete_namespace("ns_abc123")
 
 Pass `include_usage=True` to see exactly which meters a call charged, how many credits were deducted, and (for AI features) how many LLM tokens were used.
 
-It is supported by `get_transcript`, `transcribe_video`, `watch_video`, `analyze_video`, `analyze_file`, `extract_video_data`, `extract_file_data`, `search_youtube`, `search_files`, `get_tweet_statement`, `scrape_tiktok_profile`, `search_tiktok`, `get_tiktok_profile_scrape`, `get_tiktok_search`, and `job.result(include_usage=True)`. For background jobs, usage appears once the job is `completed`; failed jobs have all their charges reverted.
+It is supported by `get_transcript`, `transcribe_video`, `watch_video`, `extract_video_data`, `extract_file_data`, `search_youtube`, `search_files`, `get_tweet_statement`, `scrape_tiktok_profile`, `search_tiktok`, `get_tiktok_profile_scrape`, `get_tiktok_search`, and `job.result(include_usage=True)`. For background jobs, usage appears once the job is `completed`; failed jobs have all their charges reverted.
 
 ```python
 resp = client.search_youtube(query="react best practices", include_usage=True)
@@ -1393,7 +1379,7 @@ if usage:
     for charge in usage.charges or []:
         print(f"  {charge.service_type}: {charge.quantity} unit(s), {charge.credits} credits")
 
-    # LLM token tally (analyze / extract / YouTube search / tweet analysis)
+    # LLM token tally (extract / YouTube search / tweet analysis)
     tokens = usage.analysis_tokens
     if tokens:
         print(f"  LLM tokens: {tokens.total_tokens}")
@@ -1509,6 +1495,11 @@ One client can be reused for any number of calls. If you use threads, create one
 
 ---
 
+## What's new in 3.0.0
+
+- **Breaking: the analysis methods are removed**, with the API endpoints they called: `analyze_video`, `submit_analyze_video`, `analyze_file`, the `"analyze_video"` job type, and their models (`AnalysisResponse`, `AnalysisData`, `AnalysisResult`, `QueryAnswerDetail`, `AnalyzeVideoJob`, `AnalyzeVideoJobResponse`). Use `extract_video_data` / `extract_file_data` with `what_to_extract`: see [Upgrading to 3.0](#upgrading-to-30).
+- **Scenes in tweet claim analysis:** `get_tweet_statement`, `submit_tweet_statement` and `client.tweet_statement` take `include_scenes=True`: what the tweet's video and the quoted tweet's video show is read as well. `TweetStatementData` carries `frames_analyzed` and, when a video's picture could not be read, `scenes_error`. See [Tweet claim analysis](#tweet-claim-analysis).
+
 ## What's new in 2.7.0
 
 - **[Where each value comes from](#where-each-value-comes-from):** extraction results carry `evidence`, the moments of the video each field was taken from (`FieldEvidence`: `start`, `end`, `in_`), on `ExtractionApiResponse`, `ExtractVideoJob` and the `extract_video.completed` webhook event.
@@ -1521,8 +1512,7 @@ One client can be reused for any number of calls. If you use threads, create one
 
 ## What's new in 2.5.0
 
-- **Scenes in analysis and extraction:** `include_scenes=True` on [`analyze_video`](#use-what-the-video-shows), `extract_video_data`, `analyze_file` and `extract_file_data` uses what the video or file shows (its scenes, with the text on screen) together with the transcript. The results carry `scenes` and `frames_analyzed`.
-- **Analysis as a background job:** `submit_analyze_video`, with `resume_job("analyze_video", task_id)`, for long videos.
+- **Scenes in extraction:** `include_scenes=True` on `extract_video_data` and `extract_file_data` uses what the video or file shows (its scenes, with the text on screen) together with the transcript. The results carry `frames_analyzed`. (The analysis methods got it too, and a background job; they were removed in 3.0.0.)
 - **[Scenes of a file](#scenes-of-a-file):** `upload_file(..., include_scenes=True)`, `analyze_file_scenes(file_id)`, `file_info.scenes_status`, and the scenes in `get_file`. `ScenesNotAvailableError` when they are asked for and not there yet.
 
 ## What's new in 2.4.0
@@ -1543,6 +1533,20 @@ One client can be reused for any number of calls. If you use threads, create one
 - **`country` on TikTok keyword search**, plus `stats.videos_fetched` (what is billed) and the `items_*` counters.
 - **[Operation objects](#operation-objects)**, as in the JavaScript SDK: `client.tiktok_search(...)`, `.submit(...)`, `.resume(task_id)`, for every background job.
 - **TikTok results come whole:** `scrape_tiktok_profile`, `search_tiktok`, `search_tiktok_live` and `job.result()` on TikTok jobs now return every item, all pages merged, like the JavaScript SDK. Before, they returned the first 50. Pass `limit` to keep getting one page.
+
+## Upgrading to 3.0
+
+Version 3.0 removes the analysis methods, as the API removed their endpoints. Every analysis is an extraction now: say what you want in `what_to_extract`, or name the fields in a `schema` to get the same ones every time.
+
+| In 2.x | In 3.0 |
+|---|---|
+| A summary of a video | `extract_video_data(video_url=..., what_to_extract="a three-sentence summary")` |
+| The answer to a `query` | `extract_video_data(video_url=..., what_to_extract="a three-sentence summary and the answer to: ...")` |
+| `transcript_analysis.people`, `places`, `key_subjects` | Name them as fields of a `schema` (see [Summarize a video or ask a question about it](#summarize-a-video-or-ask-a-question-about-it)); the extracted values are in `resp.data` |
+| `include_scenes=True` | The same parameter on `extract_video_data`; `resp.frames_analyzed`, `resp.scenes_error` and `resp.transcript_error` are on the response itself. For the scenes themselves, use [`watch_video`](#watch). |
+| A long video, as a background job | `extract_video_data` always runs as a [background job](#background-jobs); `submit_extract_video_data` returns the handle |
+| An uploaded file | `extract_file_data(file_id=..., what_to_extract=...)`, with `include_scenes=True` once the file's scenes are there |
+| `transcript_text=True` to get the transcript with the analysis | `get_transcript` (or `get_file` for an uploaded file) |
 
 ## Upgrading from 1.x
 

@@ -465,6 +465,41 @@ def test_get_tweet_statement_blocking(instant_sleep):
     assert body(api.calls("POST")[0]) == {"tweet_id": "123"}
 
 
+def test_get_tweet_statement_with_scenes(instant_sleep):
+    result = {"final_statement": "Claim.", "frames_analyzed": 23,
+              "scenes_error": {"error": "frames_not_available", "message": "No picture to read."}}
+    api = (Api().on("POST", "/v1/tweet/statement/async", (202, accepted("tweet_statement")))
+           .on("GET", "/v1/tweet/statement/task_1", job("tweet_statement", "completed", result=result)))
+
+    async def go():
+        async with make_client(api) as client:
+            return await client.get_tweet_statement(tweet_id="123", include_scenes=True)
+
+    resp = run(go())
+    assert body(api.calls("POST")[0]) == {"tweet_id": "123", "include_scenes": True}
+    assert resp.data.frames_analyzed == 23
+    assert resp.data.scenes_error.error == "frames_not_available"
+
+
+def test_submit_tweet_statement_include_scenes_sent_only_when_true():
+    api = Api().on("POST", "/v1/tweet/statement/async", (202, accepted("tweet_statement")))
+
+    async def go():
+        async with make_client(api) as client:
+            handle = await client.submit_tweet_statement(tweet_id="1", include_scenes=True)
+            await client.submit_tweet_statement(tweet_id="2", include_scenes=False)
+            await client.submit_tweet_statement(tweet_id="3")
+            return handle
+
+    handle = run(go())
+    assert isinstance(handle, AsyncJob) and handle.job_type == "tweet_statement"
+    assert [body(r) for r in api.calls("POST")] == [
+        {"tweet_id": "1", "include_scenes": True},
+        {"tweet_id": "2"},
+        {"tweet_id": "3"},
+    ]
+
+
 def test_search_tiktok_blocking_passes_limit(instant_sleep):
     submit = {"status": "success", "data": {"task_id": "s1", "task_status": "processing"}}
     api = (Api().on("POST", "/v1/tiktok/search", (202, submit))
