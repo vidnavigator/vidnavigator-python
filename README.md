@@ -1389,7 +1389,7 @@ if usage:
 |---|---|
 | `charges` | List of `UsageCharge` (one per meter): `service_type`, `quantity`, `credits`, `waived`, `credits_saved`, and (analysis only) nested `tokens` |
 | `total_credits` | Net credits deducted by the call |
-| `waived` | Present when a cache-hit sponsorship waived charges (`waived.credits_saved`) |
+| `waived` | Present when charges were waived (`waived.credits_saved`) |
 | `analysis_tokens` | The LLM token counts (`prompt_tokens`, `completion_tokens`, `total_tokens`) |
 | `charge_for(service_type)` | The charge entry for one meter, e.g. `usage.charge_for("transcription_hour")` |
 
