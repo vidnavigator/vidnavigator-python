@@ -135,6 +135,19 @@ def test_upload_file_with_scenes(client, tmp_path):
     with patch.object(client, "_request", return_value=raw) as req:
         client.upload_file(str(video))
     assert req.call_args[1]["data"] == {"wait_for_completion": "false"}
+    assert "min_timeout" not in req.call_args[1]          # the default timeout is kept
+
+
+def test_upload_file_waiting_for_completion_outlasts_the_default_timeout(client, tmp_path):
+    # The API holds the request up to 15 minutes; the 30 s default cut it off.
+    video = tmp_path / "meeting.mp4"
+    video.write_bytes(b"not a real video")
+    raw = {"status": "success", "file_id": "f1", "file_status": "completed",
+           "data": {"file_info": {"id": "f1", "status": "completed"}}}
+    with patch.object(client, "_request", return_value=raw) as req:
+        client.upload_file(str(video), wait_for_completion=True)
+    assert req.call_args[1]["data"] == {"wait_for_completion": "true"}
+    assert req.call_args[1]["min_timeout"] == 960.0
 
 
 def test_analyze_file_scenes_starts_the_analysis(client):

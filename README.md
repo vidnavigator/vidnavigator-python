@@ -1495,6 +1495,10 @@ One client can be reused for any number of calls. If you use threads, create one
 
 ---
 
+## What's new in 3.0.1
+
+- **`upload_file(..., wait_for_completion=True)` no longer stops after 30 seconds.** The API holds this request until the file is processed (up to 15 minutes, then it answers with the file still `processing`), so the client's timeout is raised to 16 minutes for this call only. Before, a file that took more than 30 seconds to process ended in `VidNavigatorError: Read timed out` while it kept processing.
+
 ## What's new in 3.0.0
 
 - **Breaking: the analysis methods are removed**, with the API endpoints they called: `analyze_video`, `submit_analyze_video`, `analyze_file`, the `"analyze_video"` job type, and their models (`AnalysisResponse`, `AnalysisData`, `AnalysisResult`, `QueryAnswerDetail`, `AnalyzeVideoJob`, `AnalyzeVideoJobResponse`). Use `extract_video_data` / `extract_file_data` with `what_to_extract`: see [Upgrading to 3.0](#upgrading-to-30).

@@ -18,7 +18,7 @@ from .exceptions import VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/3.0.0"
+USER_AGENT = "vidnavigator-python/3.0.1"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -234,6 +234,13 @@ def get_file(file_id: str, *, transcript_text: bool = False) -> Request:
     return Request("GET", f"/file/{file_id}", {"params": params}, _model(models.FileResponse))
 
 
+# With `wait_for_completion`, the API holds the request until the file is
+# processed, up to 15 minutes, then answers 202 if it is still processing. The
+# client's timeout is raised to this for that call only, so a file that takes
+# longer than the default 30 s does not end in "Read timed out".
+UPLOAD_WAIT_TIMEOUT = 960.0
+
+
 def upload_file(
     file_path: str,
     *,
@@ -250,7 +257,10 @@ def upload_file(
         data["include_scenes"] = "true"
     content_type = mimetypes.guess_type(file_path)[0] or "application/octet-stream"
     upload = Upload("file", file_path, os.path.basename(file_path), content_type)
-    return Request("POST", "/upload/file", {"data": data}, upload=upload)
+    kwargs: Dict[str, Any] = {"data": data}
+    if wait_for_completion:
+        kwargs["min_timeout"] = UPLOAD_WAIT_TIMEOUT
+    return Request("POST", "/upload/file", kwargs, upload=upload)
 
 
 def file_action(method: str, path: str) -> Request:
