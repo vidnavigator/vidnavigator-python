@@ -12,7 +12,7 @@ try:  # httpx is an optional dependency
 except ImportError:  # pragma: no cover - exercised only without the extra
     httpx = None  # type: ignore[assignment]
 
-from .exceptions import VidNavigatorError
+from .exceptions import PaymentRequiredError, VidNavigatorError
 from .jobs import DEFAULT_JOB_TIMEOUT, AsyncJob
 from .operations import Operation
 from . import _core, models
@@ -586,10 +586,11 @@ class AsyncVidNavigatorClient:
         """Search YouTube for videos with AI analysis and ranking.
 
         ``focus`` is ``"relevance"`` (default), ``"recency"``, ``"popularity"``
-        or ``"brevity"``; ``duration`` is a maximum length in seconds. See
-        :meth:`VidNavigatorClient.search_youtube`.
+        or ``"brevity"``; ``duration`` is a maximum length in seconds. When
+        credits run out mid-search, the videos analysed so far are returned
+        with ``status == "partial"``. See :meth:`VidNavigatorClient.search_youtube`.
         """
-        return await self._call(_core.search_youtube(
+        req = _core.search_youtube(
             query=query,
             use_enhanced_search=use_enhanced_search,
             start_year=start_year,
@@ -598,7 +599,14 @@ class AsyncVidNavigatorClient:
             duration=duration,
             max_results=max_results,
             include_usage=include_usage,
-        ))
+        )
+        try:
+            return await self._call(req)
+        except PaymentRequiredError as exc:
+            partial = _core.partial_youtube_search(exc)
+            if partial is None:
+                raise
+            return partial
 
     async def search_files(
         self,

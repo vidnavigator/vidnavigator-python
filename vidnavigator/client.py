@@ -6,7 +6,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Union
 import requests
 
-from .exceptions import VidNavigatorError
+from .exceptions import PaymentRequiredError, VidNavigatorError
 from .jobs import DEFAULT_JOB_TIMEOUT, Job
 from .operations import Operation
 from . import _core, models
@@ -803,8 +803,13 @@ class VidNavigatorClient:
             cost. Defaults to the plan ceiling when omitted.
         include_usage:
             When True, the response includes a per-call ``usage`` block.
+
+        If credits run out mid-search, the API answers 402 with the videos
+        analysed so far: they are returned with ``status == "partial"`` and
+        ``error_code == "insufficient_credits_video_search"`` instead of
+        raising. A search that cannot start raises ``PaymentRequiredError``.
         """
-        return self._call(_core.search_youtube(
+        req = _core.search_youtube(
             query=query,
             use_enhanced_search=use_enhanced_search,
             start_year=start_year,
@@ -813,7 +818,14 @@ class VidNavigatorClient:
             duration=duration,
             max_results=max_results,
             include_usage=include_usage,
-        ))
+        )
+        try:
+            return self._call(req)
+        except PaymentRequiredError as exc:
+            partial = _core.partial_youtube_search(exc)
+            if partial is None:
+                raise
+            return partial
 
     def search_videos(
         self,

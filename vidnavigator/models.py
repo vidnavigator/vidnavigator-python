@@ -20,6 +20,17 @@ except ImportError:
     def _pre_validator(*fields):
         return validator(*fields, pre=True)
 
+try:
+    from pydantic import model_validator as _model_validator
+
+    def _pre_model_validator():
+        return _model_validator(mode="before")
+except ImportError:
+    from pydantic import root_validator
+
+    def _pre_model_validator():
+        return root_validator(pre=True, allow_reuse=True)
+
 # ---------------------------------------------------------------------------
 # Core data models (mirror `components.schemas`)
 # ---------------------------------------------------------------------------
@@ -88,6 +99,8 @@ class FileInfo(BaseModel):
     # "processing", "completed" (the scenes are returned by get_file) or
     # "failed" (scenes_error says why).
     scenes_status: Optional[str] = Field(None, alias="scenes_status")
+    # Frames read to produce the scenes; present when scenes_status is "completed".
+    frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
     scenes_error: Optional[ScenesError] = Field(None, alias="scenes_error")
 
 
@@ -278,6 +291,8 @@ class UsageBlock(BaseModel):
 
     charges: Optional[List[UsageCharge]] = None
     total_credits: Optional[float] = Field(None, alias="total_credits")
+    # Credits left on the account (monthly + purchased) after this request's charges.
+    # Absent (None) on plans without a credit limit.
     credits_remaining_after: Optional[float] = Field(None, alias="credits_remaining_after")
     waived: Optional[UsageWaived] = None
     prompt_tokens: Optional[int] = Field(None, alias="prompt_tokens")
@@ -758,7 +773,7 @@ class TikTokLiveSearchStats(BaseModel):
     pages_fetched: Optional[int] = Field(None, alias="pages_fetched")
     # Distinct rooms TikTok returned, those past ``max_results`` included. For
     # information: billing follows ``results_count`` (one ``residential_request``
-    # per 30, minimum 1 per search).
+    # per 30, minimum 1 per search) and ``pages_fetched`` (at least one per 5).
     rooms_fetched: Optional[int] = Field(None, alias="rooms_fetched")
     results_count: Optional[int] = Field(None, alias="results_count")
     has_more: Optional[bool] = Field(None, alias="has_more")
@@ -890,9 +905,13 @@ class VideoSearchData(BaseModel):
 
 
 class VideoSearchResponse(BaseModel):
+    """``status`` is ``"partial"`` when credits ran out mid-search: ``data`` then holds the
+    videos analysed so far and ``error_code`` is ``"insufficient_credits_video_search"``."""
+
     status: str
     data: VideoSearchData
     usage: Optional[UsageBlock] = None
+    error_code: Optional[str] = Field(None, alias="error_code")
 
 
 class FileSearchData(BaseModel):
@@ -927,7 +946,21 @@ class FileResponseData(BaseModel):
     file_info: FileInfo = Field(alias="file_info")
     transcript: Optional[TranscriptOutput] = None
     scenes: Optional[List[VideoScene]] = None
+    # The API sends it as ``file_info.frames_analyzed``; kept here for existing callers.
     frames_analyzed: Optional[int] = Field(None, alias="frames_analyzed")
+
+    @_pre_model_validator()
+    @classmethod
+    def _frames_analyzed_from_file_info(cls, values):
+        if isinstance(values, dict) and values.get("frames_analyzed") is None:
+            file_info = values.get("file_info")
+            if isinstance(file_info, dict):
+                frames = file_info.get("frames_analyzed")
+            else:
+                frames = getattr(file_info, "frames_analyzed", None)
+            if frames is not None:
+                values = {**values, "frames_analyzed": frames}
+        return values
 
 
 class FileResponse(BaseModel):
@@ -1253,13 +1286,15 @@ class StorageUsage(BaseModel):
 
 
 class UsagePeriod(BaseModel):
-    start: str
-    end: str
+    # None when the account has no subscription period.
+    start: Optional[str] = None
+    end: Optional[str] = None
 
 
 class BillingPeriod(BaseModel):
-    start: str
-    end: str
+    # None when the account has no subscription period.
+    start: Optional[str] = None
+    end: Optional[str] = None
     interval: Optional[str] = None
 
 
@@ -1279,6 +1314,9 @@ class UsageDetails(BaseModel):
     transcription_hour: Optional[ActivityCount] = None
     # Frames analyzed by watch_video and by include_scenes.
     frame_analysis: Optional[ActivityCount] = None
+    # Hours of video whose scenes were analysed (unit "hours").
+    scene_analysis_hour: Optional[ActivityCount] = None
+    # Deprecated: legacy counters the API no longer sends; kept so older code still runs.
     video_transcripts: Optional[ActivityCount] = None
     youtube_transcripts: Optional[ActivityCount] = None
     video_searches: Optional[ActivityCount] = None

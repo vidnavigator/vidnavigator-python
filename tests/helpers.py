@@ -51,3 +51,32 @@ def tiktok_task(status, task_id="p1", items_key="videos", **extra):
         "status": "success",
         "data": {"task_id": task_id, "task_status": status, items_key: [], **extra},
     }
+
+
+def partial_youtube_search():
+    """The 402 /youtube/search sends when credits run out after some videos were analysed."""
+    return {
+        "status": "partial",
+        "error_code": "insufficient_credits_video_search",
+        "message": "Credits ran out during video analysis. Returning partial results.",
+        "data": {
+            "results": [{"title": "R1", "url": "https://www.youtube.com/watch?v=abc", "relevance_score": 0.9}],
+            "query": "q",
+            "total_found": 1,
+            "explanation": "Partial results — credit limit reached during analysis.",
+        },
+        "usage": {
+            "charges": [{"service_type": "residential_request", "quantity": 1, "credits": 1}],
+            "total_credits": 1,
+            "credits_remaining_after": 0,
+        },
+    }
+
+
+# The 402 /youtube/search sends when the search could not start for lack of credits.
+YOUTUBE_SEARCH_NO_CREDITS = {
+    "status": "error",
+    "error": "limit_exceeded",
+    "error_code": "insufficient_credits",
+    "message": "Not enough credits.",
+}

@@ -20,6 +20,9 @@ from vidnavigator.exceptions import (
     ServerError,
     VidNavigatorError,
 )
+from vidnavigator.models import VideoSearchResponse
+
+from .helpers import YOUTUBE_SEARCH_NO_CREDITS, partial_youtube_search
 
 
 @pytest.fixture
@@ -156,3 +159,28 @@ def test_system_overload_keeps_structured_fields(client):
     assert exc_info.value.retry_after_seconds == 12
     assert exc_info.value.error_code == "system_overload"
     assert exc_info.value.status_code == 503
+
+
+def test_search_youtube_returns_partial_results_on_402(client):
+    """Credits ran out mid-search: the videos analysed so far are returned, not raised."""
+    with patch.object(client.session, "request", return_value=_mock_response(402, partial_youtube_search())):
+        resp = client.search_youtube(query="q", include_usage=True)
+    assert isinstance(resp, VideoSearchResponse)
+    assert resp.status == "partial"
+    assert resp.error_code == "insufficient_credits_video_search"
+    assert resp.data.results[0].title == "R1" and resp.data.total_found == 1 and resp.data.query == "q"
+    assert resp.usage.total_credits == 1 and resp.usage.credits_remaining_after == 0
+
+
+def test_search_youtube_402_error_still_raises(client):
+    body = dict(YOUTUBE_SEARCH_NO_CREDITS)
+    with patch.object(client.session, "request", return_value=_mock_response(402, body)):
+        with pytest.raises(PaymentRequiredError) as exc_info:
+            client.search_youtube(query="q")
+    assert exc_info.value.payload == body
+
+
+def test_partial_402_is_only_a_result_for_youtube_search(client):
+    with patch.object(client.session, "request", return_value=_mock_response(402, partial_youtube_search())):
+        with pytest.raises(PaymentRequiredError):
+            client.search_files(query="q")
