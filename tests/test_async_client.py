@@ -305,7 +305,7 @@ def test_search_youtube_sends_every_filter():
     assert resp.data.total_found == 0
     assert body(api.requests[0]) == {
         "query": "q",
-        "use_enhanced_search": True,
+        "use_enhanced_search": False,
         "focus": "recency",
         "include_usage": False,
         "start_year": 2024,

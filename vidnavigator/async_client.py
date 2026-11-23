@@ -575,7 +575,7 @@ class AsyncVidNavigatorClient:
         self,
         *,
         query: str,
-        use_enhanced_search: bool = True,
+        use_enhanced_search: bool = False,
         start_year: Optional[int] = None,
         end_year: Optional[int] = None,
         focus: str = "relevance",

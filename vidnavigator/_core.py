@@ -475,7 +475,7 @@ def get_tiktok_live_search(task_id: str, *, cursor: Optional[str] = None, limit:
 def search_youtube(
     *,
     query: str,
-    use_enhanced_search: bool = True,
+    use_enhanced_search: bool = False,
     start_year: Optional[int] = None,
     end_year: Optional[int] = None,
     focus: str = "relevance",

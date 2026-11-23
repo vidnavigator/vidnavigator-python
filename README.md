@@ -1203,7 +1203,7 @@ for r in results.data.results:
 | Parameter | Type | Description |
 |---|---|---|
 | `query` | `str` | Natural-language search query |
-| `use_enhanced_search` | `bool` | AI-enhanced query (default: `True`) |
+| `use_enhanced_search` | `bool` | AI-enhanced query, slower (default: `False`, as the API) |
 | `start_year` / `end_year` | `int` | Only videos published in or after `start_year`, and in or before `end_year` |
 | `focus` | `str` | What comes first among the matching videos: `"relevance"` (default, the best matches), `"recency"` (the most recent), `"popularity"` (the most viewed) or `"brevity"` (the shortest) |
 | `duration` | `int` | Maximum duration in seconds: longer videos are left out |
@@ -1512,6 +1512,7 @@ One client can be reused for any number of calls. If you use threads, create one
 
 ## What's new in 3.0.2
 
+- **`search_youtube` no longer turns the enhanced search on by default.** `use_enhanced_search` now defaults to `False`, as the API and the JavaScript SDK do: searches are faster. Pass `use_enhanced_search=True` to keep the former behaviour.
 - **`get_file` returns `frames_analyzed`.** The API sends it inside `file_info`, which had no such field, so it was lost: it is now `file_info.frames_analyzed`, and `data.frames_analyzed` gives the same value.
 - **`get_usage` keeps every counter:** `usage.scene_analysis_hour` was dropped; it is now there next to `usage.frame_analysis`.
 - **`get_usage` no longer fails on an account without a subscription period.** The API sends `null` dates then; `usage_period.start`, `usage_period.end`, `billing_period.start` and `billing_period.end` are now `None` instead of raising a validation error.

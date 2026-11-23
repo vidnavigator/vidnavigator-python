@@ -309,6 +309,7 @@ def test_search_youtube_leaves_unset_filters_out(client):
         client.search_youtube(query="test")
     body = req.call_args.kwargs["json_body"]
     assert body["focus"] == "relevance"
+    assert body["use_enhanced_search"] is False      # the API's default, slower search only on request
     for name in ("start_year", "end_year", "duration", "max_results"):
         assert name not in body
 
