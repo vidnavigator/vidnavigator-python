@@ -172,6 +172,28 @@ def test_get_file_carries_the_scenes_once_they_are_there(client):
     assert resp.data.scenes[0].on_screen_text == "PATÊ DE FRANGO CREMOSO" and resp.data.frames_analyzed == 30
 
 
+def test_get_file_reads_frames_analyzed_inside_file_info(client):
+    """The API sends ``frames_analyzed`` inside ``file_info``; ``data.frames_analyzed`` still gives it."""
+    raw = {"status": "success", "data": {
+        "file_info": {"id": "f1", "name": "clip.mp4", "status": "completed", "scenes_status": "completed",
+                      "frames_analyzed": 30},
+        "transcript": [{"text": "Música", "start": 0.0, "end": 4.0}], "scenes": SCENES}}
+    with patch.object(client, "_request", return_value=raw):
+        resp = client.get_file("f1")
+    assert resp.data.file_info.frames_analyzed == 30
+    assert resp.data.frames_analyzed == 30
+
+
+def test_list_files_reads_frames_analyzed(client):
+    raw = {"status": "success", "data": {
+        "files": [{"id": "f1", "status": "completed", "scenes_status": "completed", "frames_analyzed": 12},
+                  {"id": "f2", "status": "completed", "scenes_status": "none"}],
+        "total_count": 2, "limit": 50, "offset": 0, "has_more": False}}
+    with patch.object(client, "_request", return_value=raw):
+        resp = client.get_files()
+    assert [f.frames_analyzed for f in resp.data.files] == [12, None]
+
+
 def test_a_file_with_no_picture_says_why(client):
     raw = {"status": "success", "data": {"file_info": {
         "id": "f2", "type": "audio/mp3", "status": "completed", "scenes_status": "failed",

@@ -1,5 +1,6 @@
 """Unit tests for all client methods (mocked HTTP, no API key needed)."""
 
+import copy
 from datetime import date, datetime, timezone
 from unittest.mock import patch
 
@@ -308,6 +309,7 @@ def test_search_youtube_leaves_unset_filters_out(client):
         client.search_youtube(query="test")
     body = req.call_args.kwargs["json_body"]
     assert body["focus"] == "relevance"
+    assert body["use_enhanced_search"] is False      # the API's default, slower search only on request
     for name in ("start_year", "end_year", "duration", "max_results"):
         assert name not in body
 
@@ -456,6 +458,48 @@ def test_get_usage(client):
     assert d.channels_indexed.used == 1
     assert d.channels_indexed.percentage == 20.0
     assert d.storage.used_formatted == "1 KB"
+
+
+def test_get_usage_reads_every_meter(client):
+    """Every counter /usage sends is kept, frames and scene analysis hours included."""
+    raw = copy.deepcopy(USAGE_RAW)
+    raw["data"]["usage_period"] = {"start": "2026-11-01T00:00:00Z", "end": "2026-12-01T00:00:00Z"}
+    raw["data"]["billing_period"] = {"start": "2026-11-01T00:00:00Z", "end": "2026-12-01T00:00:00Z",
+                                     "interval": "month"}
+    raw["data"]["usage"]["frame_analysis"] = {"used": 120, "unit": "frames"}
+    raw["data"]["usage"]["scene_analysis_hour"] = {"used": 0.25, "unit": "hours"}
+    with patch.object(client, "_request", return_value=raw):
+        d = client.get_usage().data
+    assert d.usage.frame_analysis.used == 120 and d.usage.frame_analysis.unit == "frames"
+    assert d.usage.scene_analysis_hour.used == 0.25 and d.usage.scene_analysis_hour.unit == "hours"
+    assert d.usage_period.start == "2026-11-01T00:00:00Z" and d.billing_period.interval == "month"
+
+
+def test_get_usage_without_a_subscription_period(client):
+    """An account with no subscription period gets nulls for the dates; parsing must not fail."""
+    raw = copy.deepcopy(USAGE_RAW)
+    raw["data"]["usage_period"] = {"start": None, "end": None}
+    raw["data"]["billing_period"] = {"start": None, "end": None, "interval": None}
+    raw["data"]["subscription"] = {"plan_id": "free", "plan_name": "Explorer", "interval": None,
+                                   "status": None, "cancel_at_period_end": None}
+    with patch.object(client, "_request", return_value=raw):
+        d = client.get_usage().data
+    assert d.usage_period.start is None and d.usage_period.end is None
+    assert d.billing_period.start is None and d.billing_period.end is None
+    assert d.billing_period.interval is None
+    assert d.subscription.plan_name == "Explorer"
+
+
+def test_usage_block_credits_remaining_after(client):
+    """Credits left after the request; absent for plans without a credit limit."""
+    raw = copy.deepcopy(SEARCH_VIDEO_RAW)
+    raw["usage"]["credits_remaining_after"] = 497.5
+    with patch.object(client, "_request", return_value=raw):
+        resp = client.search_youtube(query="test", include_usage=True)
+    assert resp.usage.credits_remaining_after == 497.5
+    with patch.object(client, "_request", return_value=SEARCH_VIDEO_RAW):
+        resp = client.search_youtube(query="test", include_usage=True)
+    assert resp.usage.credits_remaining_after is None
 
 
 # ---------------------------------------------------------------------------

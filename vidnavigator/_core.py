@@ -14,11 +14,11 @@ import os
 from datetime import date, datetime
 from typing import Any, Callable, Dict, List, NamedTuple, Optional, Union
 
-from .exceptions import VidNavigatorError
+from .exceptions import PaymentRequiredError, VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/3.0.1"
+USER_AGENT = "vidnavigator-python/3.0.2"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -475,7 +475,7 @@ def get_tiktok_live_search(task_id: str, *, cursor: Optional[str] = None, limit:
 def search_youtube(
     *,
     query: str,
-    use_enhanced_search: bool = True,
+    use_enhanced_search: bool = False,
     start_year: Optional[int] = None,
     end_year: Optional[int] = None,
     focus: str = "relevance",
@@ -492,6 +492,18 @@ def search_youtube(
         max_results=max_results,
     )
     return _json("POST", "/youtube/search", payload, models.VideoSearchResponse)
+
+
+def partial_youtube_search(exc: PaymentRequiredError) -> Optional[models.VideoSearchResponse]:
+    """The videos a ``/youtube/search`` 402 carries when credits ran out mid-search, else None.
+
+    That 402 has ``status: "partial"`` and the results analysed so far in ``data``;
+    a 402 with ``status: "error"`` (the search could not start) carries none.
+    """
+    payload = exc.payload or {}
+    if payload.get("status") == "partial" and payload.get("data"):
+        return parse_model(models.VideoSearchResponse, payload)
+    return None
 
 
 def search_files(*, query: str, namespace_ids: Optional[List[str]] = None,

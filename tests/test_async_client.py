@@ -31,9 +31,10 @@ from vidnavigator.models import (
     TranscribeAllVideosResponse,
     TranscriptResponse,
     TweetStatementResponse,
+    VideoSearchResponse,
 )
 
-from .helpers import accepted, job, tiktok_task
+from .helpers import YOUTUBE_SEARCH_NO_CREDITS, accepted, job, partial_youtube_search, tiktok_task
 
 BASE = "https://api.test/v1"
 
@@ -304,13 +305,40 @@ def test_search_youtube_sends_every_filter():
     assert resp.data.total_found == 0
     assert body(api.requests[0]) == {
         "query": "q",
-        "use_enhanced_search": True,
+        "use_enhanced_search": False,
         "focus": "recency",
         "include_usage": False,
         "start_year": 2024,
         "end_year": 2025,
         "duration": 300,
     }
+
+
+def test_search_youtube_returns_partial_results_on_402():
+    """Credits ran out mid-search: the videos analysed so far are returned, as by the sync client."""
+    api = Api().on("POST", "/v1/youtube/search", (402, partial_youtube_search()))
+
+    async def go():
+        async with make_client(api) as client:
+            return await client.search_youtube(query="q", include_usage=True)
+
+    resp = run(go())
+    assert isinstance(resp, VideoSearchResponse)
+    assert resp.status == "partial" and resp.error_code == "insufficient_credits_video_search"
+    assert resp.data.results[0].title == "R1" and resp.data.total_found == 1
+    assert resp.usage.credits_remaining_after == 0
+
+
+def test_search_youtube_402_error_still_raises():
+    api = Api().on("POST", "/v1/youtube/search", (402, YOUTUBE_SEARCH_NO_CREDITS))
+
+    async def go():
+        async with make_client(api) as client:
+            await client.search_youtube(query="q")
+
+    with pytest.raises(PaymentRequiredError) as exc_info:
+        run(go())
+    assert exc_info.value.error_code == "insufficient_credits"
 
 
 def test_get_files_query_params():
