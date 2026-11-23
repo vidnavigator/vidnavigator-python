@@ -66,8 +66,10 @@ class GeoRestrictedError(VidNavigatorError):
     """Raised when content is not available in the user's region (HTTP 451)."""
 
 
-class StorageQuotaExceededError(VidNavigatorError):
-    """Raised when storage quota is exceeded (HTTP 413)."""
+class StorageQuotaExceededError(PaymentRequiredError):
+    """Raised when the storage of the plan is full: HTTP 402 ``storage_quota_exceeded`` on ``upload_file``.
+
+    A ``PaymentRequiredError``, so code that catches that one keeps working (413 is still mapped here too)."""
 
 
 class ScenesNotAvailableError(VidNavigatorError):
@@ -139,6 +141,7 @@ _STATUS_EXCEPTIONS = {
 _ERROR_CODE_EXCEPTIONS = {
     "too_many_active_jobs": TooManyActiveJobsError,
     "scenes_not_available": ScenesNotAvailableError,
+    "storage_quota_exceeded": StorageQuotaExceededError,
 }
 
 

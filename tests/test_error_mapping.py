@@ -184,3 +184,15 @@ def test_partial_402_is_only_a_result_for_youtube_search(client):
     with patch.object(client.session, "request", return_value=_mock_response(402, partial_youtube_search())):
         with pytest.raises(PaymentRequiredError):
             client.search_files(query="q")
+
+
+def test_a_full_storage_raises_storage_quota_exceeded_which_is_a_payment_required_error():
+    # The API answers 402 `storage_quota_exceeded` when the plan's storage is full.
+    from vidnavigator.exceptions import PaymentRequiredError, StorageQuotaExceededError, error_from_response
+
+    exc = error_from_response(402, {"status": "error", "error": "storage_quota_exceeded",
+                                    "error_code": "storage_quota_exceeded", "message": "Storage full"})
+    assert isinstance(exc, StorageQuotaExceededError)
+    assert isinstance(exc, PaymentRequiredError)       # `except PaymentRequiredError` still catches it
+    plain = error_from_response(402, {"status": "error", "error": "limit_exceeded", "message": "No credits"})
+    assert type(plain) is PaymentRequiredError

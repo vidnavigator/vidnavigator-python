@@ -1457,7 +1457,7 @@ except VidNavigatorError as exc:
 | `AccessDeniedError` | 403 | Insufficient permissions, or content that requires login or age verification |
 | `NotFoundError` | 404 | Resource not found, including an unknown or expired job `task_id` |
 | `ScenesNotAvailableError` | 409 | `include_scenes=True` on a file that has no scenes yet (check `.scenes_status`) |
-| `StorageQuotaExceededError` | 413 | Storage quota exceeded |
+| `StorageQuotaExceededError` | 402 | The storage of the plan is full (`storage_quota_exceeded`, on upload). A `PaymentRequiredError`, from 3.0.2 |
 | `RateLimitExceeded` | 429 | Too many requests |
 | `TooManyActiveJobsError` | 429 | Too many background jobs already running. Subclass of `RateLimitExceeded`. |
 | `GeoRestrictedError` | 451 | Content unavailable in your region |
