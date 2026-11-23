@@ -1083,7 +1083,7 @@ print(result.data.stats.sort_by, result.data.stats.published_within)  # what the
 |---|---|---|
 | `query` | `str` | Keyword phrase (at least 2 characters) |
 | `max_results` | `int` | Cap on merged results. `0` or omitted means no cap. |
-| `parallel_search_slices` | `int` | `1`-`4` concurrent search chains, deduplicated. More slices return more unique videos but bill up to N times the residential pages. |
+| `parallel_search_slices` | `int` | `1`-`4` concurrent search chains, deduplicated. More slices return more unique videos and read up to N times as many TikTok pages, which the billing below counts. |
 | `sort_by` | `str` | `"relevance"`, `"most_liked"` or `"newest"`, applied by TikTok |
 | `published_within` | `str` | `"all"`, `"past_24_hours"`, `"this_week"`, `"this_month"`, `"last_3_months"` or `"last_6_months"` (rolling windows) |
 | `after_datetime` / `before_datetime` | `str` / `date` / `datetime` | Exact publish-date bounds |
@@ -1134,7 +1134,7 @@ Each room (`TikTokLiveRoom`) has the same `id`, `url`, `author` and `stats` fiel
 - `hashtags`: the `#tags` of the title; `category`: the LIVE's category on TikTok (`"Gaming"`); `game_tags`
 - `stream_urls`: `flv` and `hls` URLs keyed by quality (`origin`, `uhd`, `hd`, `sd`, `ld`), `default_quality`, an `audio_only` stream, and `expires_at`. The URLs play while the LIVE is on.
 
-Results keep TikTok's ranking. A keyword with no LIVE room in that country at that moment completes with zero results. Billing: 1 `residential_request` per 30 rooms returned (`result.data.stats.results_count`), minimum 1 per search.
+Results keep TikTok's ranking. A keyword with no LIVE room in that country at that moment completes with zero results. Billing: 1 `residential_request` per 30 rooms returned (`result.data.stats.results_count`), minimum 1 per search and 1 per 5 TikTok pages read (`stats.pages_fetched`).
 
 ---
 
@@ -1222,6 +1222,14 @@ results = client.search_youtube(
 )
 ```
 
+If your credits run out during the analysis, `search_youtube` returns the videos analysed so far instead of raising: `results.status` is then `"partial"` and `results.error_code` is `"insufficient_credits_video_search"`. A search that cannot start for lack of credits raises `PaymentRequiredError`.
+
+```python
+results = client.search_youtube(query="how to train a neural network from scratch")
+if results.status == "partial":
+    print(f"Credits ran out: {len(results.data.results)} videos analysed")
+```
+
 > `search_videos` still works as a deprecated alias for `search_youtube`.
 
 ### Search your uploaded files
@@ -1279,7 +1287,7 @@ for scene in resp.data.scenes or []:
     print(f"[{scene.start:.0f}s] {scene.description} | on screen: {scene.on_screen_text}")
 ```
 
-`file_info.scenes_status` is `"none"` (never asked for), `"processing"`, `"completed"` or `"failed"`; when it failed, `file_info.scenes_error` says why (an audio file has no picture: `frames_not_available`).
+`file_info.scenes_status` is `"none"` (never asked for), `"processing"`, `"completed"` or `"failed"`; when it failed, `file_info.scenes_error` says why (an audio file has no picture: `frames_not_available`). Once completed, `file_info.frames_analyzed` is the number of frames read.
 
 Once the scenes are there, `extract_file_data` uses them with `include_scenes=True`. Asked on a file that has none, it raises `ScenesNotAvailableError`:
 
@@ -1375,6 +1383,8 @@ resp = client.search_youtube(query="react best practices", include_usage=True)
 usage = resp.usage
 if usage:
     print(f"Credits this call: {usage.total_credits}")
+    if usage.credits_remaining_after is not None:
+        print(f"Credits left: {usage.credits_remaining_after}")
 
     for charge in usage.charges or []:
         print(f"  {charge.service_type}: {charge.quantity} unit(s), {charge.credits} credits")
@@ -1389,6 +1399,7 @@ if usage:
 |---|---|
 | `charges` | List of `UsageCharge` (one per meter): `service_type`, `quantity`, `credits`, `waived`, `credits_saved`, and (analysis only) nested `tokens` |
 | `total_credits` | Net credits deducted by the call |
+| `credits_remaining_after` | Credits left on the account (monthly + purchased) after the call's charges; `None` on plans without a credit limit |
 | `waived` | Present when charges were waived (`waived.credits_saved`) |
 | `analysis_tokens` | The LLM token counts (`prompt_tokens`, `completion_tokens`, `total_tokens`) |
 | `charge_for(service_type)` | The charge entry for one meter, e.g. `usage.charge_for("transcription_hour")` |
@@ -1413,7 +1424,11 @@ if usage.usage:
     print(f"Transcription hours: {usage.usage.transcription_hour.used}")
     if usage.usage.frame_analysis:
         print(f"Frames analyzed: {usage.usage.frame_analysis.used}")
+    if usage.usage.scene_analysis_hour:
+        print(f"Scene analysis hours: {usage.usage.scene_analysis_hour.used}")
 ```
+
+`usage_period` and `billing_period` have `start` and `end` as ISO date strings, or `None` when the account has no subscription period.
 
 ---
 
@@ -1495,6 +1510,14 @@ One client can be reused for any number of calls. If you use threads, create one
 
 ---
 
+## What's new in 3.0.2
+
+- **`get_file` returns `frames_analyzed`.** The API sends it inside `file_info`, which had no such field, so it was lost: it is now `file_info.frames_analyzed`, and `data.frames_analyzed` gives the same value.
+- **`get_usage` keeps every counter:** `usage.scene_analysis_hour` was dropped; it is now there next to `usage.frame_analysis`.
+- **`get_usage` no longer fails on an account without a subscription period.** The API sends `null` dates then; `usage_period.start`, `usage_period.end`, `billing_period.start` and `billing_period.end` are now `None` instead of raising a validation error.
+- **`search_youtube` returns partial results.** When credits run out during the analysis, the videos analysed so far are returned with `status == "partial"` and `error_code == "insufficient_credits_video_search"`, as the JavaScript SDK does. Before, they were only in the `PaymentRequiredError` raised.
+- **`usage.credits_remaining_after`** is documented: the credits left on the account after the call's charges, `None` on plans without a credit limit.
+
 ## What's new in 3.0.1
 
 - **`upload_file(..., wait_for_completion=True)` no longer stops after 30 seconds.** The API holds this request until the file is processed (up to 15 minutes, then it answers with the file still `processing`), so the client's timeout is raised to 16 minutes for this call only. Before, a file that took more than 30 seconds to process ended in `VidNavigatorError: Read timed out` while it kept processing.
@@ -1534,7 +1557,7 @@ One client can be reused for any number of calls. If you use threads, create one
 ## What's new in 2.2.0
 
 - **TikTok LIVE search:** `search_tiktok_live` / `client.tiktok_live_search`, with typed rooms and their stream URLs.
-- **`country` on TikTok keyword search**, plus `stats.videos_fetched` (what is billed) and the `items_*` counters.
+- **`country` on TikTok keyword search**, plus the `stats.videos_fetched` and `items_*` counters.
 - **[Operation objects](#operation-objects)**, as in the JavaScript SDK: `client.tiktok_search(...)`, `.submit(...)`, `.resume(task_id)`, for every background job.
 - **TikTok results come whole:** `scrape_tiktok_profile`, `search_tiktok`, `search_tiktok_live` and `job.result()` on TikTok jobs now return every item, all pages merged, like the JavaScript SDK. Before, they returned the first 50. Pass `limit` to keep getting one page.
 
