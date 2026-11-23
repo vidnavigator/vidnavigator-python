@@ -361,6 +361,24 @@ def test_upload_file_multipart(tmp_path):
     assert b'["ns1"]' in content
 
 
+def test_upload_file_waiting_for_completion_raises_the_read_timeout(tmp_path):
+    # The API holds the request up to 15 minutes; the 30 s default cut it off.
+    media = tmp_path / "meeting.mp3"
+    media.write_bytes(b"ID3fakeaudio")
+    api = Api().on("POST", "/v1/upload/file", (201, {"status": "success", "file_id": "f9"}),
+                   (201, {"status": "success", "file_id": "f10"}))
+
+    async def go():
+        async with make_client(api) as client:
+            await client.upload_file(str(media), wait_for_completion=True)
+            await client.upload_file(str(media))
+
+    run(go())
+    waited, plain = (r.extensions["timeout"]["read"] for r in api.requests)
+    assert waited == 960.0
+    assert plain == 30
+
+
 def test_upload_missing_file_raises_before_request(tmp_path):
     api = Api()
 

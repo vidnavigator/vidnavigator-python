@@ -1389,7 +1389,7 @@ if usage:
 |---|---|
 | `charges` | List of `UsageCharge` (one per meter): `service_type`, `quantity`, `credits`, `waived`, `credits_saved`, and (analysis only) nested `tokens` |
 | `total_credits` | Net credits deducted by the call |
-| `waived` | Present when a cache-hit sponsorship waived charges (`waived.credits_saved`) |
+| `waived` | Present when charges were waived (`waived.credits_saved`) |
 | `analysis_tokens` | The LLM token counts (`prompt_tokens`, `completion_tokens`, `total_tokens`) |
 | `charge_for(service_type)` | The charge entry for one meter, e.g. `usage.charge_for("transcription_hour")` |
 
@@ -1494,6 +1494,10 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 3.0.1
+
+- **`upload_file(..., wait_for_completion=True)` no longer stops after 30 seconds.** The API holds this request until the file is processed (up to 15 minutes, then it answers with the file still `processing`), so the client's timeout is raised to 16 minutes for this call only. Before, a file that took more than 30 seconds to process ended in `VidNavigatorError: Read timed out` while it kept processing.
 
 ## What's new in 3.0.0
 
