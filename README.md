@@ -624,7 +624,7 @@ resp = job.result()  # waits if needed, then returns the same TranscriptResponse
 2. **Poll.** The SDK fetches the job right away, then every second for 10 seconds, then every 3 seconds. It keeps polling until the status is `completed` or `failed`.
 3. **Finish.** A completed job is turned into the typed result; a failed job raises the matching exception.
 
-Polling is free and is not rate-limited. A job's result stays readable for **1 hour after it finishes**, and reading it does not consume it.
+Polling is free, and polls have their own, higher [rate limit](https://docs.vidnavigator.com/api-reference/rate-limiting). A job's result stays readable for **1 hour after it finishes**, and reading it does not consume it.
 
 ### Timeouts: never lose the `task_id`
 
