@@ -214,7 +214,7 @@ def test_aclose_closes_owned_client_only():
     [
         (400, {"error": "invalid_schema", "message": "bad"}, BadRequestError, "invalid_schema"),
         (401, {"error": "Invalid API key format", "message": "bad key"}, AuthenticationError, None),
-        (402, {"error": "limit_exceeded", "error_code": "limit_exceeded", "message": "no"}, PaymentRequiredError, "limit_exceeded"),
+        (402, {"error": "insufficient_credits", "error_code": "insufficient_credits", "message": "no"}, PaymentRequiredError, "insufficient_credits"),
         (404, {"error": "task_not_found", "message": "gone"}, NotFoundError, "task_not_found"),
         (429, {"error": "too_many_active_jobs", "message": "slow"}, TooManyActiveJobsError, "too_many_active_jobs"),
         (500, {"error": "boom", "message": "boom"}, ServerError, "boom"),

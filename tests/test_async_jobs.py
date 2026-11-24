@@ -233,13 +233,13 @@ def _http_error(status_code, body):
 
 
 def test_submit_402_raises_payment_required(client):
-    body = {"status": "error", "error": "limit_exceeded", "error_code": "limit_exceeded",
+    body = {"status": "error", "error": "insufficient_credits", "error_code": "insufficient_credits",
             "message": "Less than 60 seconds of transcription credit remaining"}
     with patch.object(client.session, "request", return_value=_http_error(402, body)) as req:
         with pytest.raises(PaymentRequiredError) as exc_info:
             client.transcribe_video(video_url="https://example.com/v")
     assert exc_info.value.status_code == 402
-    assert exc_info.value.error_code == "limit_exceeded"
+    assert exc_info.value.error_code == "insufficient_credits"
     req.assert_called_once()  # no polling when no task was created
 
 
@@ -376,7 +376,7 @@ def test_result_completed_without_result_raises(client, no_sleep):
     "http_status,code,exc_cls",
     [
         (400, "unsupported_platform", BadRequestError),
-        (402, "limit_exceeded", PaymentRequiredError),
+        (402, "insufficient_credits", PaymentRequiredError),
         (500, "audio_extraction_failed", ServerError),
         (502, "tweet_fetch_failed", ServerError),
     ],
@@ -403,7 +403,7 @@ def test_failed_job_ignores_deprecated_error_message(client, no_sleep):
 
 
 def test_wait_can_return_failed_job(client, no_sleep):
-    error = {"error": "limit_exceeded", "message": "No credits", "http_status": 402}
+    error = {"error": "insufficient_credits", "message": "No credits", "http_status": 402}
     with patch.object(client, "_request", return_value=job("transcribe", "failed", error=error)):
         resp = client.resume_job("transcribe", "task_1").wait(raise_on_failure=False)
     assert resp.data.is_failed

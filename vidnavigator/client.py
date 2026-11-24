@@ -130,7 +130,7 @@ class VidNavigatorClient:
         *job_type* is one of ``"transcribe"``, ``"watch"``, ``"extract_video"``,
         ``"tweet_statement"``, ``"tiktok_profile"``, ``"tiktok_search"`` or
         ``"tiktok_live_search"``.
-        Use it after an :class:`~vidnavigator.JobTimeoutError`, a restart,
+        Use it after an :class:`~vidnavigator.TaskTimeoutError`, a restart,
         or a webhook delivery. Results stay readable for 1 hour after the job
         finishes.
         """
@@ -241,7 +241,7 @@ class VidNavigatorClient:
         When *all_videos* is True (carousel posts), the response includes
         *carousel_info* and *videos* instead of a single *video_info*.
 
-        Raises :class:`~vidnavigator.JobTimeoutError` (carrying the
+        Raises :class:`~vidnavigator.TaskTimeoutError` (carrying the
         ``task_id``) if the job is still running after *timeout* seconds.
         """
         job = self.submit_transcribe_video(
@@ -309,7 +309,7 @@ class VidNavigatorClient:
 
         Runs as a background job (``POST /watch/async`` then polling), so long
         videos are not subject to the synchronous endpoint's duration limit.
-        Raises :class:`~vidnavigator.JobTimeoutError` (carrying the
+        Raises :class:`~vidnavigator.TaskTimeoutError` (carrying the
         ``task_id``) if the job is still running after *timeout* seconds.
         """
         job = self.submit_watch_video(

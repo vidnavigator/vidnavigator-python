@@ -13,7 +13,7 @@ import asyncio
 import time
 from typing import Any, Dict, Optional
 
-from .exceptions import JobTimeoutError, VidNavigatorError
+from .exceptions import TaskTimeoutError, VidNavigatorError
 from ._core import Request, parse_model
 from . import models
 
@@ -126,7 +126,7 @@ class _PollClock:
         if self.deadline is not None:
             remaining = self.deadline - now
             if remaining <= 0:
-                raise JobTimeoutError(
+                raise TaskTimeoutError(
                     f"{job.job_type} job {job.task_id} still {status!r} after "
                     f"{self.timeout}s; it keeps running server-side, resume it with this task_id",
                     task_id=job.task_id,
@@ -233,7 +233,7 @@ class Job(_JobBase):
         seconds when ``fast_start`` is on). If the job failed, raises the
         exception matching its ``error`` object unless ``raise_on_failure`` is
         False. If ``timeout`` seconds pass first, raises
-        :class:`~vidnavigator.JobTimeoutError` carrying this job's
+        :class:`~vidnavigator.TaskTimeoutError` carrying this job's
         ``task_id``; pass ``timeout=None`` to wait indefinitely.
         """
         clock = _PollClock(timeout, poll_interval, fast_start)
