@@ -17,7 +17,7 @@ from .exceptions import TaskTimeoutError, VidNavigatorError
 from ._core import Request, parse_model
 from . import models
 
-# Polling is free and has its own, higher rate limit: poll quickly at first so short clips
+# Polling is free: poll quickly at first so short clips
 # return fast, then settle into a steady interval.
 POLL_INTERVAL = 3.0
 FAST_POLL_INTERVAL = 1.0

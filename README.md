@@ -624,7 +624,7 @@ resp = job.result()  # waits if needed, then returns the same TranscriptResponse
 2. **Poll.** The SDK fetches the job right away, then every second for 10 seconds, then every 3 seconds. It keeps polling until the status is `completed` or `failed`.
 3. **Finish.** A completed job is turned into the typed result; a failed job raises the matching exception.
 
-Polling is free, and polls have their own, higher [rate limit](https://docs.vidnavigator.com/api-reference/rate-limiting). A job's result stays readable for **1 hour after it finishes**, and reading it does not consume it.
+Polling is free. Rate limits: see the [documentation](https://docs.vidnavigator.com/api-reference/rate-limiting). A job's result stays readable for **1 hour after it finishes**, and reading it does not consume it.
 
 ### Timeouts: never lose the `task_id`
 
@@ -1459,7 +1459,7 @@ except VidNavigatorError as exc:
 | `NotFoundError` | 404 | Resource not found, including an unknown or expired job `task_id` |
 | `ScenesNotAvailableError` | 409 | `include_scenes=True` on a file that has no scenes yet (check `.scenes_status`) |
 | `StorageQuotaExceededError` | 402 | The storage of the plan is full (`storage_quota_exceeded`, on upload). A `PaymentRequiredError`, from 3.0.2 |
-| `RateLimitExceededError` | 429 | Too many requests (`rate_limit_exceeded`); wait `Retry-After` seconds. Named `RateLimitExceeded` before 3.1.0, a name that still works |
+| `RateLimitExceededError` | 429 | Too many requests (`rate_limit_exceeded`): see the [rate limits](https://docs.vidnavigator.com/api-reference/rate-limiting). Named `RateLimitExceeded` before 3.1.0, a name that still works |
 | `TooManyActiveJobsError` | 429 | Too many background jobs already running. Subclass of `RateLimitExceededError`. |
 | `GeoRestrictedError` | 451 | Content unavailable in your region |
 | `SystemOverloadError` | 503 | Temporary overload (check `.retry_after_seconds`) |
