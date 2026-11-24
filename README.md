@@ -628,14 +628,14 @@ Polling is free and is not rate-limited. A job's result stays readable for **1 h
 
 ### Timeouts: never lose the `task_id`
 
-Blocking calls and `result()` wait up to `timeout` seconds (default one hour). When the timeout passes, they raise `JobTimeoutError`, but the job **keeps running on the server**. The error carries the `task_id` and a ready-to-use handle:
+Blocking calls and `result()` wait up to `timeout` seconds (default one hour). When the timeout passes, they raise `TaskTimeoutError`, but the job **keeps running on the server**. The error carries the `task_id` and a ready-to-use handle:
 
 ```python
-from vidnavigator import JobTimeoutError
+from vidnavigator import TaskTimeoutError
 
 try:
     resp = client.transcribe_video(video_url=url, timeout=600)
-except JobTimeoutError as exc:
+except TaskTimeoutError as exc:
     print("Still running:", exc.task_id)
     resp = exc.job.result()  # keep waiting on the same job
 ```
@@ -653,11 +653,11 @@ if job.done():
 A failed job reports an `error` object with an `error` code, a `message` and an `http_status`. The SDK raises the exception matching that status, so the same `except` clauses work everywhere:
 
 ```python
-from vidnavigator import BadRequestError, PaymentRequiredError, VidNavigatorError
+from vidnavigator import BadRequestError, InsufficientCreditsError, VidNavigatorError
 
 try:
     resp = client.transcribe_video(video_url=url)
-except PaymentRequiredError:
+except InsufficientCreditsError:
     print("Out of transcription credit")
 except BadRequestError as exc:
     print(exc.error_code, exc)  # e.g. "unsupported_platform"
@@ -673,8 +673,8 @@ Some errors happen before a job exists. No task is created, so there is nothing 
 
 | Exception | Status | When |
 |---|---|---|
-| `PaymentRequiredError` | 402 | Not enough credit to start the job. It can also be raised by `result()` or a blocking call when the job runs out of credit while running. |
-| `TooManyActiveJobsError` (subclass of `RateLimitExceeded`) | 429 | Too many jobs already running for your account; retry once some finish ([recipe](#stay-under-the-running-job-limit)) |
+| `InsufficientCreditsError` (a `PaymentRequiredError`) | 402 | Not enough credit to start the job (`insufficient_credits`). It can also be raised by `result()` or a blocking call when the job runs out of credit while running. |
+| `TooManyActiveJobsError` (subclass of `RateLimitExceededError`) | 429 | Too many jobs already running for your account; retry once some finish ([recipe](#stay-under-the-running-job-limit)) |
 | `BadRequestError` | 400 | Invalid parameters, an invalid extraction schema, or a non-public `webhook_url` |
 
 ### Result types
@@ -877,7 +877,7 @@ if not await job.done():
 resp = await job.result()
 ```
 
-Timeouts work as in the sync client: `JobTimeoutError` carries the `task_id` and an `AsyncJob` handle, so `await exc.job.result()` resumes waiting, and `client.resume_job(job_type, task_id)` rebuilds a handle later.
+Timeouts work as in the sync client: `TaskTimeoutError` carries the `task_id` and an `AsyncJob` handle, so `await exc.job.result()` resumes waiting, and `client.resume_job(job_type, task_id)` rebuilds a handle later.
 
 ### In a FastAPI app
 
@@ -1437,13 +1437,13 @@ if usage.usage:
 Every API error maps to a specific exception, and all of them inherit from `VidNavigatorError`:
 
 ```python
-from vidnavigator import NotFoundError, RateLimitExceeded, VidNavigatorError
+from vidnavigator import NotFoundError, RateLimitExceededError, VidNavigatorError
 
 try:
     client.get_file("nonexistent-id")
 except NotFoundError:
     print("File not found")
-except RateLimitExceeded:
+except RateLimitExceededError:
     print("Rate limit hit -- slow down")
 except VidNavigatorError as exc:
     print("Something else went wrong:", exc)
@@ -1453,17 +1453,18 @@ except VidNavigatorError as exc:
 |---|---|---|
 | `BadRequestError` | 400 | Invalid parameters or schema |
 | `AuthenticationError` | 401 | Missing or invalid API key |
-| `PaymentRequiredError` | 402 | Not enough credits; upgrade or top up |
+| `PaymentRequiredError` | 402 | Any 402. Its two subclasses below say which one |
+| `InsufficientCreditsError` | 402 | Not enough credits (`insufficient_credits`); upgrade or top up. A `PaymentRequiredError`, from 3.1.0 |
 | `AccessDeniedError` | 403 | Insufficient permissions, or content that requires login or age verification |
 | `NotFoundError` | 404 | Resource not found, including an unknown or expired job `task_id` |
 | `ScenesNotAvailableError` | 409 | `include_scenes=True` on a file that has no scenes yet (check `.scenes_status`) |
 | `StorageQuotaExceededError` | 402 | The storage of the plan is full (`storage_quota_exceeded`, on upload). A `PaymentRequiredError`, from 3.0.2 |
-| `RateLimitExceeded` | 429 | Too many requests |
-| `TooManyActiveJobsError` | 429 | Too many background jobs already running. Subclass of `RateLimitExceeded`. |
+| `RateLimitExceededError` | 429 | Too many requests (`rate_limit_exceeded`); wait `Retry-After` seconds. Named `RateLimitExceeded` before 3.1.0, a name that still works |
+| `TooManyActiveJobsError` | 429 | Too many background jobs already running. Subclass of `RateLimitExceededError`. |
 | `GeoRestrictedError` | 451 | Content unavailable in your region |
 | `SystemOverloadError` | 503 | Temporary overload (check `.retry_after_seconds`) |
 | `ServerError` | 5xx | Unexpected server error |
-| `JobTimeoutError` | -- | A blocking call or `job.result()` hit its `timeout`. The job keeps running; resume with `.job` or `.task_id`. |
+| `TaskTimeoutError` | -- | A blocking call or `job.result()` hit its `timeout`. The job keeps running; resume with `.job` or `.task_id`. Named `JobTimeoutError` before 3.1.0, a name that still works |
 | `WebhookSignatureError` | -- | A webhook delivery failed signature or timestamp verification |
 | `VidNavigatorError` | -- | Base class for all errors, also raised for network failures |
 
@@ -1509,6 +1510,11 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 3.1.0
+
+- **The same error classes as the JavaScript SDK.** Running out of credits raises `InsufficientCreditsError`, a `PaymentRequiredError`, so `except PaymentRequiredError` keeps working. `RateLimitExceeded` and `JobTimeoutError` are now `RateLimitExceededError` and `TaskTimeoutError`, as in JavaScript; the former names still work.
+- **The API's code for "not enough credits" is now `insufficient_credits`** (it was `limit_exceeded`). Both raise `InsufficientCreditsError`; `exc.error_code` carries the code the API sent.
 
 ## What's new in 3.0.2
 
@@ -1582,7 +1588,7 @@ Version 2.0 runs speech-to-text and TikTok operations as background jobs. Most c
 
 | In 1.x | In 2.0 |
 |---|---|
-| `transcribe_video`, `extract_video_data` and `get_tweet_statement` made one long HTTP request | They submit a job and poll it. Same arguments and return types, and no media duration limit. They can raise `JobTimeoutError` (default wait: one hour). |
+| `transcribe_video`, `extract_video_data` and `get_tweet_statement` made one long HTTP request | They submit a job and poll it. Same arguments and return types, and no media duration limit. They can raise `TaskTimeoutError` (default wait: one hour). |
 | `extract_video_data(..., include_usage=True).usage.total_tokens` | Use `usage.analysis_tokens.total_tokens` |
 | `submit_tiktok_profile_scrape` / `submit_tiktok_search` returned the submit response | They return a `Job`. `job.data.task_id` still works; **`job.status` is now a method**, so replace `task.status == "success"` checks. |
 | Manual polling loops on `get_tiktok_profile_scrape` | `scrape_tiktok_profile(...)`, or `job.result()` on a submitted job |

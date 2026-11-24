@@ -168,7 +168,7 @@ def test_result_scenes_only_and_plain_text(client, no_sleep):
     [
         (404, "frames_not_available", NotFoundError),
         (400, "video_too_long", BadRequestError),
-        (402, "limit_exceeded", PaymentRequiredError),
+        (402, "insufficient_credits", PaymentRequiredError),
     ],
 )
 def test_failed_job_raises_the_matching_exception(client, no_sleep, http_status, code, exc_cls):

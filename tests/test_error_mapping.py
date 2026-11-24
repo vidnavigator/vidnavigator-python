@@ -14,7 +14,8 @@ from vidnavigator.exceptions import (
     AccessDeniedError,
     NotFoundError,
     StorageQuotaExceededError,
-    RateLimitExceeded,
+    InsufficientCreditsError,
+    RateLimitExceededError,
     GeoRestrictedError,
     SystemOverloadError,
     ServerError,
@@ -47,7 +48,7 @@ ERROR_CASES = [
     (403, AccessDeniedError),
     (404, NotFoundError),
     (413, StorageQuotaExceededError),
-    (429, RateLimitExceeded),
+    (429, RateLimitExceededError),
     (451, GeoRestrictedError),
     (500, ServerError),
     (502, ServerError),
@@ -121,9 +122,9 @@ def test_error_carries_code_status_docs_and_payload(client):
 
 
 def test_error_code_field_takes_precedence(client):
-    body = {"status": "error", "error": "limit_exceeded", "error_code": "insufficient_credits_video_search"}
+    body = {"status": "error", "error": "insufficient_credits", "error_code": "insufficient_credits_video_search"}
     with patch.object(client.session, "request", return_value=_mock_response(402, body)):
-        with pytest.raises(PaymentRequiredError) as exc_info:
+        with pytest.raises(InsufficientCreditsError) as exc_info:
             client.health_check()
     assert exc_info.value.error_code == "insufficient_credits_video_search"
 
@@ -133,7 +134,7 @@ def test_too_many_active_jobs_maps_to_subclass(client):
     with patch.object(client.session, "request", return_value=_mock_response(429, body)):
         with pytest.raises(TooManyActiveJobsError) as exc_info:
             client.health_check()
-    assert isinstance(exc_info.value, RateLimitExceeded)
+    assert isinstance(exc_info.value, RateLimitExceededError)
 
 
 def test_non_json_error_body_uses_text(client):
@@ -194,5 +195,38 @@ def test_a_full_storage_raises_storage_quota_exceeded_which_is_a_payment_require
                                     "error_code": "storage_quota_exceeded", "message": "Storage full"})
     assert isinstance(exc, StorageQuotaExceededError)
     assert isinstance(exc, PaymentRequiredError)       # `except PaymentRequiredError` still catches it
-    plain = error_from_response(402, {"status": "error", "error": "limit_exceeded", "message": "No credits"})
+    credits = error_from_response(402, {"status": "error", "error": "insufficient_credits", "message": "No credits"})
+    assert type(credits) is InsufficientCreditsError
+    plain = error_from_response(402, {"status": "error", "error": "subscription_inactive", "message": "No plan"})
     assert type(plain) is PaymentRequiredError
+
+
+# Out of credits: `insufficient_credits` (the code before was `limit_exceeded`), the
+# same class as the JavaScript SDK, and still a PaymentRequiredError.
+@pytest.mark.parametrize("code", ["insufficient_credits", "limit_exceeded"])
+def test_out_of_credits_raises_insufficient_credits_error(client, code):
+    body = {"status": "error", "error": code, "error_code": code, "message": "Not enough credits."}
+    with patch.object(client.session, "request", return_value=_mock_response(402, body)):
+        with pytest.raises(InsufficientCreditsError) as exc_info:
+            client.health_check()
+    assert isinstance(exc_info.value, PaymentRequiredError)
+    assert exc_info.value.error_code == code
+
+
+def test_a_job_that_runs_out_of_credits_raises_insufficient_credits_error():
+    from vidnavigator.exceptions import error_from_response
+
+    exc = error_from_response(402, {"error": "insufficient_credits", "message": "Out of credits mid-job",
+                                    "http_status": 402})
+    assert isinstance(exc, InsufficientCreditsError)
+
+
+def test_the_names_before_3_1_still_work():
+    import vidnavigator
+    from vidnavigator.exceptions import JobTimeoutError, RateLimitExceeded, TaskTimeoutError
+
+    assert RateLimitExceeded is RateLimitExceededError
+    assert JobTimeoutError is TaskTimeoutError
+    for name in ("InsufficientCreditsError", "RateLimitExceededError", "TaskTimeoutError",
+                 "RateLimitExceeded", "JobTimeoutError"):
+        assert name in vidnavigator.__all__ and hasattr(vidnavigator, name)

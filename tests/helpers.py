@@ -76,7 +76,7 @@ def partial_youtube_search():
 # The 402 /youtube/search sends when the search could not start for lack of credits.
 YOUTUBE_SEARCH_NO_CREDITS = {
     "status": "error",
-    "error": "limit_exceeded",
+    "error": "insufficient_credits",
     "error_code": "insufficient_credits",
     "message": "Not enough credits.",
 }

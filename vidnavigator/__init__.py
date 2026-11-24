@@ -1,6 +1,6 @@
 """VidNavigator Developer API Python client."""
 
-__version__ = "3.0.2"
+__version__ = "3.1.0"
 
 from .client import VidNavigatorClient
 from .async_client import AsyncVidNavigatorClient
@@ -10,7 +10,9 @@ from .exceptions import (
     AuthenticationError,
     AccessDeniedError,
     PaymentRequiredError,
+    InsufficientCreditsError,
     NotFoundError,
+    RateLimitExceededError,
     RateLimitExceeded,
     TooManyActiveJobsError,
     BadRequestError,
@@ -19,6 +21,7 @@ from .exceptions import (
     ScenesNotAvailableError,
     SystemOverloadError,
     ServerError,
+    TaskTimeoutError,
     JobTimeoutError,
     WebhookSignatureError,
 )
@@ -33,7 +36,9 @@ __all__ = [
     "AuthenticationError",
     "AccessDeniedError",
     "PaymentRequiredError",
+    "InsufficientCreditsError",
     "NotFoundError",
+    "RateLimitExceededError",
     "RateLimitExceeded",
     "TooManyActiveJobsError",
     "BadRequestError",
@@ -42,6 +47,7 @@ __all__ = [
     "ScenesNotAvailableError",
     "SystemOverloadError",
     "ServerError",
+    "TaskTimeoutError",
     "JobTimeoutError",
     "WebhookSignatureError",
     "construct_webhook_event",

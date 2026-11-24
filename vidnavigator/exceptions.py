@@ -47,11 +47,15 @@ class NotFoundError(VidNavigatorError):
     """Raised when a requested resource is not found (HTTP 404)."""
 
 
-class RateLimitExceeded(VidNavigatorError):
-    """Raised when rate limits are exceeded (HTTP 429)."""
+class RateLimitExceededError(VidNavigatorError):
+    """Raised on HTTP 429: too many requests (``rate_limit_exceeded``). Wait ``Retry-After`` seconds."""
 
 
-class TooManyActiveJobsError(RateLimitExceeded):
+#: The name of :class:`RateLimitExceededError` before 3.1.0, kept so existing code keeps working.
+RateLimitExceeded = RateLimitExceededError
+
+
+class TooManyActiveJobsError(RateLimitExceededError):
     """Raised when a job submit is rejected (HTTP 429) because too many jobs are already running.
 
     No task is created; retry once some of your running jobs finish.
@@ -59,7 +63,17 @@ class TooManyActiveJobsError(RateLimitExceeded):
 
 
 class PaymentRequiredError(VidNavigatorError):
-    """Raised on HTTP 402: not enough credits (including at job submit time, when no task is created)."""
+    """Raised on HTTP 402. Catch it for any 402, or one of its subclasses to know which:
+    :class:`InsufficientCreditsError` (not enough credits) or
+    :class:`StorageQuotaExceededError` (the storage of the plan is full)."""
+
+
+class InsufficientCreditsError(PaymentRequiredError):
+    """Raised when the account does not have enough credits: HTTP 402 ``insufficient_credits``.
+
+    Raised at job submit time (no task is created) and by ``result()`` or a blocking call
+    when a job runs out of credits. A ``PaymentRequiredError``, so code that catches that
+    one keeps working."""
 
 
 class GeoRestrictedError(VidNavigatorError):
@@ -109,7 +123,7 @@ class ServerError(VidNavigatorError):
     """Raised on 5xx server errors (excluding overload mapped to SystemOverloadError)."""
 
 
-class JobTimeoutError(VidNavigatorError):
+class TaskTimeoutError(VidNavigatorError):
     """Raised when a blocking call stops waiting for a job that has not finished.
 
     The job keeps running server-side and its result stays readable for 1 hour
@@ -123,6 +137,10 @@ class JobTimeoutError(VidNavigatorError):
         self.job = job
 
 
+#: The name of :class:`TaskTimeoutError` before 3.1.0, kept so existing code keeps working.
+JobTimeoutError = TaskTimeoutError
+
+
 class WebhookSignatureError(VidNavigatorError):
     """Raised when a webhook delivery fails signature or timestamp verification."""
 
@@ -134,11 +152,14 @@ _STATUS_EXCEPTIONS = {
     403: AccessDeniedError,
     404: NotFoundError,
     413: StorageQuotaExceededError,
-    429: RateLimitExceeded,
+    429: RateLimitExceededError,
     451: GeoRestrictedError,
 }
 
 _ERROR_CODE_EXCEPTIONS = {
+    "insufficient_credits": InsufficientCreditsError,
+    "insufficient_credits_video_search": InsufficientCreditsError,
+    "limit_exceeded": InsufficientCreditsError,  # the API's code for it before November 2026
     "too_many_active_jobs": TooManyActiveJobsError,
     "scenes_not_available": ScenesNotAvailableError,
     "storage_quota_exceeded": StorageQuotaExceededError,
