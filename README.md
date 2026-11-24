@@ -665,7 +665,7 @@ except VidNavigatorError as exc:
     print("Job failed:", exc)
 ```
 
-To inspect a failure without an exception, use `job.wait(raise_on_failure=False)` and read `resp.data.error`. A failed job has all its charges reverted.
+To inspect a failure without an exception, use `job.wait(raise_on_failure=False)` and read `resp.data.error`. What a failed job is billed: see the [documentation](https://docs.vidnavigator.com/api-reference/usage-costs).
 
 ### Submit-time errors
 
