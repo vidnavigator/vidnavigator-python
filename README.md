@@ -272,21 +272,20 @@ print(len(resp.data.scenes), "scenes")
 | Parameter | Type | Description |
 |---|---|---|
 | `video_url` | `str` | URL of the video (`?img_index=N` selects one video of an Instagram carousel or a Snapchat highlight) |
-| `detail` | `str` | How closely the picture is followed: `"low"`, `"auto"` (the default) or `"high"`. The number of frames depends on the video at every level: few on a fixed shot, many on a fast-cut clip. A higher level analyzes more frames when the picture changes often. |
 | `include_transcript` | `bool` | Default `True`. `False` returns the scenes only (`transcript` is `None`). |
 | `transcript_text` | `bool` | Return the transcript as a single string instead of segments |
-| `include_usage` | `bool` | Attach a `usage` block to the result; the frames are its `frame_analysis` charge |
+| `include_usage` | `bool` | Attach a `usage` block to the result; the hours of video watched are its `watch_hour` charge. Prices: see the [documentation](https://docs.vidnavigator.com/api-reference/usage-costs). |
 | `webhook_url` | `str` | Optional; see [Webhooks](#webhooks) |
 | `timeout` | `float` | Seconds to wait for the job (default 3600; `None` waits indefinitely). See [Timeouts](#timeouts-never-lose-the-task_id). |
 
 To start it without waiting, use the handle, as for any background job:
 
 ```python
-job = client.watch.submit(video_url=url, detail="high")   # or client.submit_watch_video(...)
+job = client.watch.submit(video_url=url)                  # or client.submit_watch_video(...)
 print(job.task_id)
 
 resp = job.result(include_usage=True)                     # waits if needed
-print(resp.usage.charge_for("frame_analysis").quantity)   # frames charged
+print(resp.usage.charge_for("watch_hour").quantity)       # hours of video charged
 
 job = client.watch.resume(saved_task_id)                  # the same handle, later
 ```
@@ -393,7 +392,7 @@ print(resp.frames_analyzed)      # 30
 
 Ask for the scenes when the answer may be on screen rather than spoken (the quantities of a recipe, a price, a slide, a caption), or when the video has little or no speech. When the video has no transcript, or no picture to read, the fields are extracted from the other source and `resp.transcript_error` or `resp.scenes_error` says why.
 
-The scenes are billed per frame analyzed, on top of the extraction: 1 credit per 2,000 frames, with at least 667 frames per hour of video.
+What the scenes are billed: see the [documentation](https://docs.vidnavigator.com/api-reference/usage-costs).
 
 ### Schema format
 
@@ -1301,7 +1300,7 @@ except ScenesNotAvailableError as exc:
         client.analyze_file_scenes(file_id)   # start them, then call again once completed
 ```
 
-The frames of a file are charged once, when its scenes are analyzed (1 credit per 2,000 frames, with at least 667 frames per hour of video). Using them afterwards adds no frame charge.
+What the scenes of a file are billed: see the [documentation](https://docs.vidnavigator.com/api-reference/usage-costs).
 
 ### Retrieve a file and its transcript
 
@@ -1404,7 +1403,7 @@ if usage:
 | `analysis_tokens` | The LLM token counts (`prompt_tokens`, `completion_tokens`, `total_tokens`) |
 | `charge_for(service_type)` | The charge entry for one meter, e.g. `usage.charge_for("transcription_hour")` |
 
-Meters: `standard_request`, `residential_request`, `transcription_hour`, `frame_analysis`, `analysis_request`, `search_request` and `scene_analysis_hour`.
+Meters: `standard_request`, `residential_request`, `transcription_hour`, `watch_hour`, `analysis_request`, `search_request` and `scene_analysis_hour`. `watch_hour` replaces `frame_analysis`, the former meter of the scenes. What each meter costs: see the [documentation](https://docs.vidnavigator.com/api-reference/usage-costs).
 
 ---
 
@@ -1422,13 +1421,13 @@ if usage.usage:
     print(f"Search requests: {usage.usage.search_request.used}")
     print(f"Analysis requests: {usage.usage.analysis_request.used}")
     print(f"Transcription hours: {usage.usage.transcription_hour.used}")
-    if usage.usage.frame_analysis:
-        print(f"Frames analyzed: {usage.usage.frame_analysis.used}")
+    if usage.usage.watch_hour:
+        print(f"Hours of video watched: {usage.usage.watch_hour.used}")
     if usage.usage.scene_analysis_hour:
         print(f"Scene analysis hours: {usage.usage.scene_analysis_hour.used}")
 ```
 
-`usage_period` and `billing_period` have `start` and `end` as ISO date strings, or `None` when the account has no subscription period.
+`usage_period` and `billing_period` have `start` and `end` as ISO date strings, or `None` when the account has no subscription period. `usage.usage.frame_analysis` (unit `"frames"`) counts the scenes charged in the former unit, before `watch_hour`.
 
 ---
 
@@ -1510,6 +1509,12 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 3.2.0
+
+- **Watching is counted in hours of video.** The scenes (`watch_video`, and `include_scenes` on extraction, tweet analysis and uploaded files) are charged on the new `watch_hour` meter, in hours, instead of `frame_analysis`: read `usage.charge_for("watch_hour")` on a call, and `get_usage().data.usage.watch_hour` (unit `"hours"`) for the period. Prices: see the [documentation](https://docs.vidnavigator.com/api-reference/usage-costs).
+- **`usage.frame_analysis` stays** in `get_usage`: it counts the scenes charged in frames earlier in the period. `frames_analyzed` is unchanged.
+- **`detail` on watch is deprecated:** the API no longer uses it and the SDK no longer sends it.
 
 ## What's new in 3.1.0
 

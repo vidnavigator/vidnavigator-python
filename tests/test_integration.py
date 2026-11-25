@@ -590,7 +590,7 @@ def test_watch_video_blocking(client):
 
 @pytest.mark.skipif(not TEST_WATCH_URL, reason="VIDNAVIGATOR_WATCH_URL not set")
 def test_watch_scenes_only_through_a_handle(client):
-    handle = client.watch.submit(video_url=TEST_WATCH_URL, detail="low", include_transcript=False)
+    handle = client.watch.submit(video_url=TEST_WATCH_URL, include_transcript=False)
     assert handle.job_type == "watch" and handle.task_id
     resumed = client.watch.resume(handle.task_id)
     resp = resumed.result(timeout=ASYNC_JOB_TIMEOUT_SECONDS)
@@ -598,11 +598,6 @@ def test_watch_scenes_only_through_a_handle(client):
     assert resp.data.transcript is None
     done = resumed.last_response
     assert done.data.is_completed and done.data.request["video_url"] == TEST_WATCH_URL
-
-
-def test_watch_rejects_an_unknown_detail(client):
-    with pytest.raises(BadRequestError):
-        client.submit_watch_video(video_url=TEST_VIDEO_URL, detail="extreme")
 
 
 @pytest.mark.parametrize(

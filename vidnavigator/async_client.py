@@ -5,6 +5,7 @@ Requires the ``async`` extra: ``pip install "vidnavigator[async]"``.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, Dict, List, Optional, Union
 
 try:  # httpx is an optional dependency
@@ -196,10 +197,14 @@ class AsyncVidNavigatorClient:
         transcript_text: bool = False,
         webhook_url: Optional[str] = None,
     ) -> AsyncJob:
-        """Start watching a video and return the job's handle immediately."""
+        """Start watching a video and return the job's handle immediately.
+
+        *detail* is deprecated and ignored: the API no longer uses it.
+        """
+        if detail is not None:
+            warnings.warn(_core.WATCH_DETAIL_DEPRECATION, DeprecationWarning, stacklevel=2)
         return await self._submit(_core.submit_watch_video(
             video_url=video_url,
-            detail=detail,
             include_transcript=include_transcript,
             transcript_text=transcript_text,
             webhook_url=webhook_url,
@@ -220,9 +225,10 @@ class AsyncVidNavigatorClient:
 
         See :meth:`VidNavigatorClient.watch_video`.
         """
+        if detail is not None:
+            warnings.warn(_core.WATCH_DETAIL_DEPRECATION, DeprecationWarning, stacklevel=2)
         job = await self.submit_watch_video(
             video_url=video_url,
-            detail=detail,
             include_transcript=include_transcript,
             transcript_text=transcript_text,
             webhook_url=webhook_url,

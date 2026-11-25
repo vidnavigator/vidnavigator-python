@@ -37,9 +37,10 @@ WATCH_RESULT = {
 USAGE = {
     "charges": [
         {"service_type": "standard_request", "quantity": 1.0, "credits": 0.0001},
-        {"service_type": "frame_analysis", "quantity": 9.0, "credits": 0.009},
+        # 12.5 s of video: one started minute, in hours.
+        {"service_type": "watch_hour", "quantity": 0.0167, "credits": 0.0042},
     ],
-    "total_credits": 0.0091,
+    "total_credits": 0.0043,
 }
 
 
@@ -59,7 +60,6 @@ def test_submit_watch_video_returns_handle(client):
     assert handle.job_type == "watch" and handle.task_id == "task_1"
     assert handle.check_status_url == "/v1/watch/task_1"
     assert repr(handle) == "Job(job_type='watch', task_id='task_1')"
-    # `detail` is left to the API's default when it is not given.
     req.assert_called_once_with(
         "POST",
         "/watch/async",
@@ -76,7 +76,6 @@ def test_submit_watch_video_all_params(client):
     with patch.object(client, "_request", return_value=raw) as req:
         handle = client.submit_watch_video(
             video_url="https://www.tiktok.com/@a/video/1",
-            detail="high",
             include_transcript=False,
             transcript_text=True,
             webhook_url="https://example.com/hook",
@@ -84,11 +83,36 @@ def test_submit_watch_video_all_params(client):
     assert handle.webhook_url == "https://example.com/hook"
     assert req.call_args[1]["json_body"] == {
         "video_url": "https://www.tiktok.com/@a/video/1",
-        "detail": "high",
         "include_transcript": False,
         "transcript_text": True,
         "webhook_url": "https://example.com/hook",
     }
+
+
+DETAIL_WARNING = "`detail` is no longer used by the API and is ignored"
+
+
+def test_detail_is_accepted_but_never_sent(client):
+    # 3.x callers that still pass `detail` keep working: a DeprecationWarning, nothing sent.
+    with patch.object(client, "_request", return_value=accepted("watch")) as req:
+        with pytest.warns(DeprecationWarning, match=DETAIL_WARNING) as record:
+            client.submit_watch_video(video_url="https://example.com/v", detail="high")
+    assert len(record) == 1
+    assert record[0].filename == __file__  # points at the caller's line
+    assert req.call_args[1]["json_body"] == {
+        "video_url": "https://example.com/v", "include_transcript": True, "transcript_text": False,
+    }
+
+    with patch.object(client, "_request", return_value=accepted("watch")) as req:
+        with pytest.warns(DeprecationWarning, match=DETAIL_WARNING):
+            client.watch.submit(video_url="https://example.com/v", detail="low")
+    assert "detail" not in req.call_args[1]["json_body"]
+
+
+def test_no_warning_without_detail(client, recwarn):
+    with patch.object(client, "_request", return_value=accepted("watch")):
+        client.submit_watch_video(video_url="https://example.com/v")
+    assert not [w for w in recwarn if issubclass(w.category, DeprecationWarning)]
 
 
 def test_no_max_frames_parameter(client):
@@ -131,7 +155,8 @@ def test_result_scenes_and_transcript_with_usage(client, no_sleep):
     assert all(isinstance(scene, VideoScene) for scene in scenes)
     assert [(s.start, s.end) for s in scenes] == [(0.0, 4.0), (4.0, 12.5)]
     assert scenes[0].on_screen_text == "BREAKING NEWS" and scenes[1].on_screen_text == ""
-    assert resp.usage.charge_for("frame_analysis").quantity == 9.0
+    assert resp.usage.charge_for("watch_hour").quantity == 0.0167
+    assert resp.usage.charge_for("frame_analysis") is None
     for call in req.call_args_list:
         assert call == (("GET", "/watch/task_1"), {"params": {"include_usage": "true"}})
 
@@ -190,13 +215,14 @@ def test_watch_video_blocking(client, no_sleep):
         job("watch", "completed", result=WATCH_RESULT, usage=USAGE),
     ]
     with patch.object(client, "_request", side_effect=responses) as req:
-        resp = client.watch_video(video_url="https://example.com/v", detail="low", include_usage=True)
+        with pytest.warns(DeprecationWarning, match=DETAIL_WARNING) as record:
+            resp = client.watch_video(video_url="https://example.com/v", detail="low", include_usage=True)
+    assert len(record) == 1  # one warning, not one per layer
     assert isinstance(resp, WatchResponse)
-    assert resp.usage.total_credits == 0.0091
+    assert resp.usage.total_credits == 0.0043
     calls = req.call_args_list
     assert calls[0] == (("POST", "/watch/async"), {"json_body": {
         "video_url": "https://example.com/v", "include_transcript": True, "transcript_text": False,
-        "detail": "low",
     }})
     assert calls[1] == calls[2] == (("GET", "/watch/task_1"), {"params": {"include_usage": "true"}})
 
@@ -275,8 +301,9 @@ def test_async_submit_and_result(instant_sleep):
 
     async def go():
         async with make_async_client(api) as client:
-            handle = await client.submit_watch_video(
-                video_url="https://example.com/v", detail="high", webhook_url="https://h.example")
+            with pytest.warns(DeprecationWarning, match=DETAIL_WARNING):
+                handle = await client.submit_watch_video(
+                    video_url="https://example.com/v", detail="high", webhook_url="https://h.example")
             assert isinstance(handle, AsyncJob) and handle.job_type == "watch"
             assert client.watch.resume("t9").job_type == "watch"
             return await handle.result(include_usage=True)
@@ -284,10 +311,11 @@ def test_async_submit_and_result(instant_sleep):
     resp = asyncio.run(go())
     assert isinstance(resp, WatchResponse)
     assert resp.data.scenes[0].on_screen_text == "BREAKING NEWS"
-    assert resp.usage.charge_for("frame_analysis").credits == 0.009
+    assert resp.usage.charge_for("watch_hour").credits == 0.0042
+    # `detail` is accepted (deprecated) but never sent.
     assert json.loads(api.requests[0].content) == {
         "video_url": "https://example.com/v", "include_transcript": True, "transcript_text": False,
-        "detail": "high", "webhook_url": "https://h.example",
+        "webhook_url": "https://h.example",
     }
 
 
@@ -303,6 +331,22 @@ def test_async_watch_video_blocking(instant_sleep):
     resp = asyncio.run(go())
     assert isinstance(resp, WatchResponse) and resp.data.frames_analyzed == 9
     assert json.loads(api.requests[0].content)["include_transcript"] is False
+
+
+def test_async_watch_video_with_detail_warns_once_and_does_not_send_it(instant_sleep):
+    api = (Api()
+           .on("POST", "/v1/watch/async", (202, accepted("watch")))
+           .on("GET", "/v1/watch/task_1", job("watch", "completed", result=WATCH_RESULT)))
+
+    async def go():
+        async with make_async_client(api) as client:
+            with pytest.warns(DeprecationWarning, match=DETAIL_WARNING) as record:
+                await client.watch_video(video_url="https://example.com/v", detail="auto")
+            return record
+
+    record = asyncio.run(go())
+    assert len(record) == 1
+    assert "detail" not in json.loads(api.requests[0].content)
 
 
 # ---------------------------------------------------------------------------
