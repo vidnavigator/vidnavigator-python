@@ -194,17 +194,20 @@ def submit_transcribe_video(
 # Watch
 # ---------------------------------------------------------------------------
 
+# The watch methods still accept `detail` so 3.x callers keep working, but it is
+# never sent: the API no longer uses it.
+WATCH_DETAIL_DEPRECATION = "`detail` is no longer used by the API and is ignored"
+
+
 def submit_watch_video(
     *,
     video_url: str,
-    detail: Optional[str] = None,
     include_transcript: bool = True,
     transcript_text: bool = False,
     webhook_url: Optional[str] = None,
 ) -> Request:
     payload = _with_optional(
         {"video_url": video_url, "include_transcript": include_transcript, "transcript_text": transcript_text},
-        detail=detail,
         webhook_url=webhook_url,
     )
     return _submit("watch", _json("POST", "/watch/async", payload, models.AsyncJobSubmitResponse))

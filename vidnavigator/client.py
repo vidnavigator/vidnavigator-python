@@ -268,9 +268,10 @@ class VidNavigatorClient:
         :class:`~vidnavigator.models.WatchResponse`, or ``.status()`` to check
         on it. Same parameters as :meth:`watch_video`.
         """
+        if detail is not None:
+            warnings.warn(_core.WATCH_DETAIL_DEPRECATION, DeprecationWarning, stacklevel=2)
         return self._submit(_core.submit_watch_video(
             video_url=video_url,
-            detail=detail,
             include_transcript=include_transcript,
             transcript_text=transcript_text,
             webhook_url=webhook_url,
@@ -298,8 +299,7 @@ class VidNavigatorClient:
         Parameters
         ----------
         detail:
-            How closely the picture is followed: ``"low"``, ``"auto"`` (the
-            default) or ``"high"``.
+            Deprecated and ignored: the API no longer uses it.
         include_transcript:
             Set to False for the scenes only. With the default, a video without
             a transcript is not an error: ``.data.transcript`` is empty and
@@ -312,9 +312,10 @@ class VidNavigatorClient:
         Raises :class:`~vidnavigator.TaskTimeoutError` (carrying the
         ``task_id``) if the job is still running after *timeout* seconds.
         """
+        if detail is not None:
+            warnings.warn(_core.WATCH_DETAIL_DEPRECATION, DeprecationWarning, stacklevel=2)
         job = self.submit_watch_video(
             video_url=video_url,
-            detail=detail,
             include_transcript=include_transcript,
             transcript_text=transcript_text,
             webhook_url=webhook_url,
