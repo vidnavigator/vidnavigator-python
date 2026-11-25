@@ -461,15 +461,17 @@ def test_get_usage(client):
 
 
 def test_get_usage_reads_every_meter(client):
-    """Every counter /usage sends is kept, frames and scene analysis hours included."""
+    """Every counter /usage sends is kept: watch hours, the former frames, and scene analysis hours."""
     raw = copy.deepcopy(USAGE_RAW)
     raw["data"]["usage_period"] = {"start": "2026-11-01T00:00:00Z", "end": "2026-12-01T00:00:00Z"}
     raw["data"]["billing_period"] = {"start": "2026-11-01T00:00:00Z", "end": "2026-12-01T00:00:00Z",
                                      "interval": "month"}
+    raw["data"]["usage"]["watch_hour"] = {"used": 1.25, "unit": "hours"}
     raw["data"]["usage"]["frame_analysis"] = {"used": 120, "unit": "frames"}
     raw["data"]["usage"]["scene_analysis_hour"] = {"used": 0.25, "unit": "hours"}
     with patch.object(client, "_request", return_value=raw):
         d = client.get_usage().data
+    assert d.usage.watch_hour.used == 1.25 and d.usage.watch_hour.unit == "hours"
     assert d.usage.frame_analysis.used == 120 and d.usage.frame_analysis.unit == "frames"
     assert d.usage.scene_analysis_hour.used == 0.25 and d.usage.scene_analysis_hour.unit == "hours"
     assert d.usage_period.start == "2026-11-01T00:00:00Z" and d.billing_period.interval == "month"

@@ -1312,7 +1312,10 @@ class UsageDetails(BaseModel):
     search_request: Optional[ActivityCount] = None
     analysis_request: Optional[ActivityCount] = None
     transcription_hour: Optional[ActivityCount] = None
-    # Frames analyzed by watch_video and by include_scenes.
+    # Hours of video watched by watch_video and by include_scenes (unit "hours").
+    watch_hour: Optional[ActivityCount] = None
+    # Frames analyzed (unit "frames"): the former unit of watch_video, replaced by
+    # watch_hour; past charges of the current period still carry it.
     frame_analysis: Optional[ActivityCount] = None
     # Hours of video whose scenes were analysed (unit "hours").
     scene_analysis_hour: Optional[ActivityCount] = None

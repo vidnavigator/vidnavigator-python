@@ -37,9 +37,10 @@ WATCH_RESULT = {
 USAGE = {
     "charges": [
         {"service_type": "standard_request", "quantity": 1.0, "credits": 0.0001},
-        {"service_type": "frame_analysis", "quantity": 9.0, "credits": 0.009},
+        # 12.5 s of video: one started minute, in hours.
+        {"service_type": "watch_hour", "quantity": 0.0167, "credits": 0.0042},
     ],
-    "total_credits": 0.0091,
+    "total_credits": 0.0043,
 }
 
 
@@ -131,7 +132,8 @@ def test_result_scenes_and_transcript_with_usage(client, no_sleep):
     assert all(isinstance(scene, VideoScene) for scene in scenes)
     assert [(s.start, s.end) for s in scenes] == [(0.0, 4.0), (4.0, 12.5)]
     assert scenes[0].on_screen_text == "BREAKING NEWS" and scenes[1].on_screen_text == ""
-    assert resp.usage.charge_for("frame_analysis").quantity == 9.0
+    assert resp.usage.charge_for("watch_hour").quantity == 0.0167
+    assert resp.usage.charge_for("frame_analysis") is None
     for call in req.call_args_list:
         assert call == (("GET", "/watch/task_1"), {"params": {"include_usage": "true"}})
 
@@ -192,7 +194,7 @@ def test_watch_video_blocking(client, no_sleep):
     with patch.object(client, "_request", side_effect=responses) as req:
         resp = client.watch_video(video_url="https://example.com/v", detail="low", include_usage=True)
     assert isinstance(resp, WatchResponse)
-    assert resp.usage.total_credits == 0.0091
+    assert resp.usage.total_credits == 0.0043
     calls = req.call_args_list
     assert calls[0] == (("POST", "/watch/async"), {"json_body": {
         "video_url": "https://example.com/v", "include_transcript": True, "transcript_text": False,
@@ -284,7 +286,7 @@ def test_async_submit_and_result(instant_sleep):
     resp = asyncio.run(go())
     assert isinstance(resp, WatchResponse)
     assert resp.data.scenes[0].on_screen_text == "BREAKING NEWS"
-    assert resp.usage.charge_for("frame_analysis").credits == 0.009
+    assert resp.usage.charge_for("watch_hour").credits == 0.0042
     assert json.loads(api.requests[0].content) == {
         "video_url": "https://example.com/v", "include_transcript": True, "transcript_text": False,
         "detail": "high", "webhook_url": "https://h.example",
