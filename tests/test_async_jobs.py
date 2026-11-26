@@ -156,7 +156,7 @@ def test_submit_extract_video_data_json(client):
     assert handle.job_type == "extract_video"
     req.assert_called_once_with(
         "POST",
-        "/extract/video/async",
+        "/extract/async",
         json_body={
             "video_url": "https://example.com/v",
             "schema": SCHEMA,
@@ -177,7 +177,7 @@ def test_submit_extract_video_data_schema_file(client, tmp_path):
             webhook_url="",
         )
     args, kwargs = req.call_args
-    assert args == ("POST", "/extract/video/async")
+    assert args == ("POST", "/extract/async")
     assert kwargs["data"] == {
         "video_url": "https://example.com/v",
         "transcribe": "true",
@@ -276,7 +276,7 @@ def test_refresh_with_usage(client):
     assert isinstance(resp, ExtractVideoJobResponse)
     assert resp.data.result == {"mood": "cheerful"}
     assert resp.usage.total_credits == 0.505
-    req.assert_called_once_with("GET", "/extract/video/task_1", params={"include_usage": "true"})
+    req.assert_called_once_with("GET", "/extract/task_1", params={"include_usage": "true"})
 
 
 def test_resume_job_validation(client):
@@ -522,9 +522,9 @@ def test_extract_video_data_blocking(client, no_sleep):
         )
     assert resp.data == {"mood": "calm"}
     post, get = req.call_args_list
-    assert post[0] == ("POST", "/extract/video/async")
+    assert post[0] == ("POST", "/extract/async")
     assert "include_usage" not in post[1]["json_body"]
-    assert get == (("GET", "/extract/video/task_1"), {"params": {"include_usage": "true"}})
+    assert get == (("GET", "/extract/task_1"), {"params": {"include_usage": "true"}})
 
 
 def test_get_tweet_statement_blocking(client, no_sleep):
@@ -564,7 +564,7 @@ def test_many_jobs_in_parallel(client, no_sleep):
 # Guard: the synchronous speech-to-text endpoints are never called
 # ---------------------------------------------------------------------------
 
-SYNC_ONLY_PATHS = {"/transcribe", "/extract/video", "/tweet/statement"}
+SYNC_ONLY_PATHS = {"/transcribe", "/extract", "/tweet/statement"}
 
 
 def test_no_method_calls_synchronous_speech_to_text_endpoints(client, no_sleep, tmp_path):
@@ -577,11 +577,11 @@ def test_no_method_calls_synchronous_speech_to_text_endpoints(client, no_sleep, 
         resp.ok = True
         resp.status_code = 200
         if method == "POST":
-            job_type = {"/transcribe/async": "transcribe", "/extract/video/async": "extract_video",
+            job_type = {"/transcribe/async": "transcribe", "/extract/async": "extract_video",
                         "/tweet/statement/async": "tweet_statement"}[path]
             resp.json.return_value = accepted(job_type)
         else:
-            job_type = {"/transcribe/task_1": "transcribe", "/extract/video/task_1": "extract_video",
+            job_type = {"/transcribe/task_1": "transcribe", "/extract/task_1": "extract_video",
                         "/tweet/statement/task_1": "tweet_statement"}[path]
             result = {"transcribe": TRANSCRIPT_RESULT, "extract_video": {"a": 1},
                       "tweet_statement": TWEET_RESULT}[job_type]
@@ -598,5 +598,5 @@ def test_no_method_calls_synchronous_speech_to_text_endpoints(client, no_sleep, 
         client.get_tweet_statement(tweet_id="1")
 
     posted = {path for method, path in seen if method == "POST"}
-    assert posted == {"/transcribe/async", "/extract/video/async", "/tweet/statement/async"}
+    assert posted == {"/transcribe/async", "/extract/async", "/tweet/statement/async"}
     assert not posted & SYNC_ONLY_PATHS

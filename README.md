@@ -24,7 +24,7 @@ The official Python client for the [VidNavigator Developer API](https://docs.vid
 | Capability | Online Videos | Uploaded Files |
 |---|:---:|:---:|
 | Transcripts (segments with timestamps or plain text) | Yes | Yes |
-| Scenes: what a video shows, with the text on screen | Yes | -- |
+| Scenes: what a video shows, with the text on screen | Yes | Yes |
 | Structured data extraction: a summary, answers to questions, or the fields of your JSON Schema | Yes | Yes |
 | Semantic search across content | Yes (YouTube) | Yes |
 | File upload, storage, and management | -- | Yes |
@@ -136,7 +136,7 @@ for scene in resp.data.scenes:
 | Find TikTok LIVE rooms broadcasting now, with their stream URLs | `search_tiktok_live` | when the job finishes |
 | Check one TikTok LIVE room or streamer, with its latest comments | `get_tiktok_live_room` | immediately |
 | Find YouTube videos about a topic | `search_youtube` | immediately |
-| Work with your own audio/video files | `upload_file`, then `get_file`, `extract_file_data`, `search_files` | immediately |
+| Work with your own audio/video files | `upload_file`, then `get_file`, `watch_file`, `extract_file_data`, `search_files` | immediately |
 | Process **many** videos at once | the `submit_*` version of a job method | a job handle, right away |
 | Call the API from asyncio code (FastAPI, aiohttp, bots, agents) | [`AsyncVidNavigatorClient`](#async-client) | the same results, awaited |
 
@@ -1265,7 +1265,7 @@ With `wait_for_completion=False` (the default), the upload returns immediately a
 
 ### Scenes of a file
 
-What a video file shows is analyzed once and kept with the file. Ask for it at upload, or later for a file that is already there:
+What a video file shows is analyzed once and kept with the file. Ask for it at upload, or later for a file that is already there with `watch_file` (`POST /v1/watch/file`):
 
 ```python
 import time
@@ -1273,7 +1273,7 @@ import time
 result = client.upload_file("./recipe.mp4", include_scenes=True)   # at upload
 file_id = result["file_id"]
 # or, for an existing file:
-client.analyze_file_scenes(file_id)
+client.watch_file(file_id)
 
 while True:
     resp = client.get_file(file_id)
@@ -1297,7 +1297,7 @@ try:
     resp = client.extract_file_data(file_id=file_id, what_to_extract="What is written on the label?", include_scenes=True)
 except ScenesNotAvailableError as exc:
     if exc.scenes_status == "none":
-        client.analyze_file_scenes(file_id)   # start them, then call again once completed
+        client.watch_file(file_id)   # start them, then call again once completed
 ```
 
 What the scenes of a file are billed: see the [documentation](https://docs.vidnavigator.com/api-reference/usage-costs).
@@ -1509,6 +1509,11 @@ with VidNavigatorClient() as client:
 One client can be reused for any number of calls. If you use threads, create one client per thread. For asyncio code, use [`AsyncVidNavigatorClient`](#async-client).
 
 ---
+
+## What's new in 3.3.0
+
+- **The SDK calls the new extraction paths:** `extract_video_data`, `submit_extract_video_data` and `client.extract_video` submit to `POST /v1/extract/async` and poll `GET /v1/extract/{task_id}` (the job's `check_status_url`). The job type is still `"extract_video"`, and nothing else changes: same parameters, same results.
+- **`watch_file(file_id)`** starts the scene analysis of an uploaded file with `POST /v1/watch/file`, the file id in the JSON body; it returns a `FileScenesResponse`, as before. `analyze_file_scenes(file_id)` remains as an alias of `watch_file`.
 
 ## What's new in 3.2.0
 

@@ -407,6 +407,21 @@ def test_upload_file_waiting_for_completion_raises_the_read_timeout(tmp_path):
     assert plain == 30
 
 
+def test_watch_file_and_its_alias_post_the_file_id():
+    started = {"status": "success", "data": {"file_id": "f1", "scenes_status": "processing", "message": "started"}}
+    api = Api().on("POST", "/v1/watch/file", (202, started))
+
+    async def go():
+        async with make_client(api) as client:
+            return await client.watch_file("f1"), await client.analyze_file_scenes("f1")
+
+    watched, aliased = run(go())
+    assert watched.data.scenes_status == "processing" and aliased.data.file_id == "f1"
+    assert [(r.method, r.url.path) for r in api.requests] == [("POST", "/v1/watch/file")] * 2
+    assert all(body(r) == {"file_id": "f1"} for r in api.requests)
+    assert all(r.headers["Content-Type"] == "application/json" for r in api.requests)
+
+
 def test_upload_missing_file_raises_before_request(tmp_path):
     api = Api()
 
@@ -480,8 +495,8 @@ def test_extract_video_data_blocking_with_schema_file(tmp_path, instant_sleep):
     schema_file.write_text(json.dumps(SCHEMA))
     done = job("extract_video", "completed", result={"mood": "calm"})
     done["data"]["video_info"] = {"title": "Clip"}
-    api = (Api().on("POST", "/v1/extract/video/async", (202, accepted("extract_video")))
-           .on("GET", "/v1/extract/video/task_1", done))
+    api = (Api().on("POST", "/v1/extract/async", (202, accepted("extract_video")))
+           .on("GET", "/v1/extract/task_1", done))
 
     async def go():
         async with make_client(api) as client:
@@ -631,7 +646,7 @@ def test_job_failure_raises_from_error_object(instant_sleep):
 
 
 def test_status_done_refresh_and_resume():
-    api = Api().on("GET", "/v1/extract/video/t9",
+    api = Api().on("GET", "/v1/extract/t9",
                    job("extract_video", "processing", task_id="t9"),
                    job("extract_video", "completed", result={"a": 1}, task_id="t9"))
 

@@ -18,7 +18,7 @@ from .exceptions import PaymentRequiredError, VidNavigatorError
 from . import models
 
 DEFAULT_BASE_URL = "https://api.vidnavigator.com/v1"
-USER_AGENT = "vidnavigator-python/3.2.0"
+USER_AGENT = "vidnavigator-python/3.3.0"
 API_KEY_ENV_VAR = "VIDNAVIGATOR_API_KEY"
 
 DateLike = Union[str, date, datetime]
@@ -270,8 +270,8 @@ def file_action(method: str, path: str) -> Request:
     return Request(method, path, {})
 
 
-def analyze_file_scenes(file_id: str) -> Request:
-    return Request("POST", f"/file/{file_id}/scenes", {}, _model(models.FileScenesResponse))
+def watch_file(file_id: str) -> Request:
+    return _json("POST", "/watch/file", {"file_id": file_id}, models.FileScenesResponse)
 
 
 # ---------------------------------------------------------------------------
@@ -297,7 +297,7 @@ def submit_extract_video_data(
         "webhook_url": webhook_url,
     }
     return _submit("extract_video", _schema_request(
-        "/extract/video/async", fields, schema, schema_file, models.AsyncJobSubmitResponse,
+        "/extract/async", fields, schema, schema_file, models.AsyncJobSubmitResponse,
     ))
 
 
