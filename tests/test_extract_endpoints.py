@@ -64,7 +64,7 @@ def test_extract_video_data_posts_correct_path_and_body(client, no_sleep):
 
     submit, poll = req.call_args_list
     assert submit == (
-        ("POST", "/extract/video/async"),
+        ("POST", "/extract/async"),
         {
             "json_body": {
                 "video_url": "https://youtube.com/watch?v=abc",
@@ -75,7 +75,7 @@ def test_extract_video_data_posts_correct_path_and_body(client, no_sleep):
         },
     )
     # include_usage is not accepted at submit time; it is sent on the poll.
-    assert poll == (("GET", "/extract/video/task_1"), {"params": {"include_usage": "true"}})
+    assert poll == (("GET", "/extract/task_1"), {"params": {"include_usage": "true"}})
     assert resp.status == "success"
     assert resp.data == {"topic": "demo"}
     assert resp.usage is not None
@@ -124,7 +124,7 @@ def test_extract_video_data_can_upload_schema_file(client, tmp_path, no_sleep):
     )
 
     args, kwargs = req.call_args_list[0]
-    assert args == ("POST", "/extract/video/async")
+    assert args == ("POST", "/extract/async")
     assert kwargs["data"] == {
         "video_url": "https://youtube.com/watch?v=abc",
         "transcribe": "false",

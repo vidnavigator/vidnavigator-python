@@ -30,7 +30,7 @@ TERMINAL_STATUSES = ("completed", "failed")
 JOB_ROUTES = {
     "transcribe": ("/transcribe", models.TranscribeJobResponse),
     "watch": ("/watch", models.WatchJobResponse),
-    "extract_video": ("/extract/video", models.ExtractVideoJobResponse),
+    "extract_video": ("/extract", models.ExtractVideoJobResponse),
     "tweet_statement": ("/tweet/statement", models.TweetStatementJobResponse),
     "tiktok_profile": ("/tiktok/profile", models.TikTokProfileResponse),
     "tiktok_search": ("/tiktok/search", models.TikTokSearchResponse),

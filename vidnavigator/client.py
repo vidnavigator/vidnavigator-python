@@ -400,7 +400,7 @@ class VidNavigatorClient:
     ) -> models.ExtractionApiResponse:
         """Extract structured data from an online video and wait for the result.
 
-        Runs as a background job (``POST /extract/video/async`` then polling).
+        Runs as a background job (``POST /extract/async`` then polling).
         The extracted fields are in ``.data`` and the video's metadata in
         ``.video_info``.
 
@@ -440,7 +440,7 @@ class VidNavigatorClient:
         With ``include_scenes=True`` the fields can also be filled from the
         scenes kept with the file; while the file has none, the call raises
         :class:`~vidnavigator.ScenesNotAvailableError` (see
-        :meth:`analyze_file_scenes`).
+        :meth:`watch_file`).
         """
         return self._call(_core.extract_file_data(
             file_id=file_id,
@@ -926,10 +926,11 @@ class VidNavigatorClient:
             include_scenes=include_scenes,
         ))
 
-    def analyze_file_scenes(self, file_id: str) -> models.FileScenesResponse:
-        """Start the scene analysis of a file already uploaded: what its picture shows.
+    def watch_file(self, file_id: str) -> models.FileScenesResponse:
+        """Watch a file already uploaded: start the analysis of what its picture shows.
 
-        The scenes of a file are analyzed once and kept with it. Follow
+        Calls ``POST /watch/file``, as :meth:`watch_video` does for an online
+        video. The scenes of a file are analyzed once and kept with it. Follow
         ``file_info.scenes_status`` with :meth:`get_file`: it goes from
         ``"processing"`` to ``"completed"`` (the scenes are then in
         ``.data.scenes``) or ``"failed"`` (``file_info.scenes_error`` says
@@ -940,7 +941,11 @@ class VidNavigatorClient:
         file has no picture: the call raises
         :class:`~vidnavigator.BadRequestError` (``frames_not_available``).
         """
-        return self._call(_core.analyze_file_scenes(file_id))
+        return self._call(_core.watch_file(file_id))
+
+    def analyze_file_scenes(self, file_id: str) -> models.FileScenesResponse:
+        """The name of :meth:`watch_file` before 3.3.0, kept so existing code keeps working."""
+        return self.watch_file(file_id)
 
     def retry_file_processing(self, file_id: str) -> Dict[str, Any]:
         return self._call(_core.file_action("POST", f"/file/{file_id}/retry"))

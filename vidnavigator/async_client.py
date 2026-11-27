@@ -267,9 +267,13 @@ class AsyncVidNavigatorClient:
             include_scenes=include_scenes,
         ))
 
+    async def watch_file(self, file_id: str) -> models.FileScenesResponse:
+        """Watch a file already uploaded: ``POST /watch/file`` (see the sync client for details)."""
+        return await self._call(_core.watch_file(file_id))
+
     async def analyze_file_scenes(self, file_id: str) -> models.FileScenesResponse:
-        """Start the scene analysis of a file already uploaded (see the sync client for details)."""
-        return await self._call(_core.analyze_file_scenes(file_id))
+        """The name of :meth:`watch_file` before 3.3.0, kept so existing code keeps working."""
+        return await self.watch_file(file_id)
 
     async def retry_file_processing(self, file_id: str) -> Dict[str, Any]:
         return await self._call(_core.file_action("POST", f"/file/{file_id}/retry"))

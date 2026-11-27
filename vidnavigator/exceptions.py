@@ -91,7 +91,7 @@ class ScenesNotAvailableError(VidNavigatorError):
 
     ``scenes_status`` says where the scene analysis of the file stands:
 
-    - ``"none"``: never asked for. Start it with ``analyze_file_scenes(file_id)``,
+    - ``"none"``: never asked for. Start it with ``watch_file(file_id)``,
       or upload with ``include_scenes=True``.
     - ``"processing"``: it is running. Call again once ``get_file`` reports
       ``file_info.scenes_status == "completed"``.

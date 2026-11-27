@@ -41,10 +41,14 @@ FILE_EXTRACTION_WITH_SCENES = {
 }
 NO_SCENES = {
     "status": "error", "error": "scenes_not_available", "error_code": "scenes_not_available",
-    "message": "This file has no scenes yet. Start their analysis with POST /v1/file/f1/scenes, "
+    "message": 'This file has no scenes yet. Start their analysis with POST /v1/watch/file {"file_id": "f1"}, '
                "or upload with include_scenes, then call again.",
     "scenes_status": "none",
 }
+
+
+# What POST /v1/extract/async answers: the job type is still extract_video.
+EXTRACT_ACCEPTED = accepted("extract_video", check_status_url="/v1/extract/task_1")
 
 
 @pytest.fixture
@@ -60,19 +64,20 @@ def test_extract_video_data_with_scenes(client):
     done = job("extract_video", "completed", result={"dish": "PATÊ DE FRANGO CREMOSO"})
     done["data"]["video_info"] = {"title": "Patê de frango"}
     done["data"]["frames_analyzed"] = 30
-    with patch.object(client, "_request", side_effect=[accepted("extract/video"), done]) as req:
+    with patch.object(client, "_request", side_effect=[EXTRACT_ACCEPTED, done]) as req:
         resp = client.extract_video_data(video_url=VIDEO, schema=SCHEMA, include_scenes=True, timeout=5)
     submit = req.call_args_list[0]
-    assert submit[0] == ("POST", "/extract/video/async")
+    assert submit[0] == ("POST", "/extract/async")
     assert submit[1]["json_body"] == {"video_url": VIDEO, "transcribe": True, "include_scenes": True, "schema": SCHEMA}
     assert isinstance(resp, ExtractionApiResponse)
     assert resp.data == {"dish": "PATÊ DE FRANGO CREMOSO"} and resp.frames_analyzed == 30
 
 
 def test_extract_video_data_without_scenes_sends_no_include_scenes(client):
-    with patch.object(client, "_request", return_value=accepted("extract/video")) as req:
-        client.submit_extract_video_data(video_url=VIDEO, schema=SCHEMA)
+    with patch.object(client, "_request", return_value=EXTRACT_ACCEPTED) as req:
+        handle = client.submit_extract_video_data(video_url=VIDEO, schema=SCHEMA)
     assert "include_scenes" not in req.call_args[1]["json_body"]
+    assert handle.job_type == "extract_video" and handle.check_status_url == "/v1/extract/task_1"
 
 
 def test_extract_video_job_result_carries_the_scenes(client):
@@ -81,7 +86,7 @@ def test_extract_video_job_result_carries_the_scenes(client):
     done["data"]["frames_analyzed"] = 30
     with patch.object(client, "_request", return_value=done) as req:
         resp = handle.result(timeout=5)
-    assert req.call_args[0] == ("GET", "/extract/video/task_1")
+    assert req.call_args[0] == ("GET", "/extract/task_1")
     assert isinstance(resp, ExtractionApiResponse)
     assert resp.frames_analyzed == 30 and resp.scenes_error is None and resp.transcript_error is None
 
@@ -150,14 +155,23 @@ def test_upload_file_waiting_for_completion_outlasts_the_default_timeout(client,
     assert req.call_args[1]["min_timeout"] == 960.0
 
 
-def test_analyze_file_scenes_starts_the_analysis(client):
+def test_watch_file_starts_the_analysis(client):
     raw = {"status": "success", "data": {"file_id": "f1", "scenes_status": "processing",
                                          "message": "Scene analysis started."}}
     with patch.object(client, "_request", return_value=raw) as req:
-        resp = client.analyze_file_scenes("f1")
-    assert req.call_args[0] == ("POST", "/file/f1/scenes")
+        resp = client.watch_file("f1")
+    req.assert_called_once_with("POST", "/watch/file", json_body={"file_id": "f1"})
     assert isinstance(resp, FileScenesResponse)
     assert resp.data.scenes_status == "processing" and resp.data.file_id == "f1"
+
+
+def test_analyze_file_scenes_is_an_alias_of_watch_file(client):
+    """The name before 3.3.0 still works, and calls POST /watch/file too."""
+    raw = {"status": "success", "data": {"file_id": "f1", "scenes_status": "completed", "message": "there"}}
+    with patch.object(client, "_request", return_value=raw) as req:
+        resp = client.analyze_file_scenes("f1")
+    req.assert_called_once_with("POST", "/watch/file", json_body={"file_id": "f1"})
+    assert isinstance(resp, FileScenesResponse) and resp.data.scenes_status == "completed"
 
 
 def test_get_file_carries_the_scenes_once_they_are_there(client):
@@ -216,7 +230,7 @@ def test_scenes_not_available_is_its_own_error():
     assert isinstance(error, ScenesNotAvailableError)
     assert error.status_code == 409 and error.error_code == "scenes_not_available"
     assert error.scenes_status == "none"
-    assert "POST /v1/file/f1/scenes" in error.message
+    assert "POST /v1/watch/file" in error.message
 
     still_running = error_from_response(409, dict(NO_SCENES, scenes_status="processing"))
     assert still_running.scenes_status == "processing"
@@ -231,9 +245,9 @@ def test_the_usual_way_to_get_the_scenes_of_a_file(client):
         with pytest.raises(ScenesNotAvailableError) as raised:
             client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True)
         assert raised.value.scenes_status == "none"
-        assert client.analyze_file_scenes("f1").data.scenes_status == "processing"
+        assert client.watch_file("f1").data.scenes_status == "processing"
         assert client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True).frames_analyzed == 30
-    assert [call[0][1] for call in req.call_args_list] == ["/extract/file", "/file/f1/scenes", "/extract/file"]
+    assert [call[0][1] for call in req.call_args_list] == ["/extract/file", "/watch/file", "/extract/file"]
 
 
 def test_an_audio_file_is_refused_when_its_scenes_are_asked():
@@ -254,16 +268,21 @@ def test_async_client_has_the_same_methods():
             with patch.object(client, "_request", return_value=FILE_EXTRACTION_WITH_SCENES) as req:
                 extraction = await client.extract_file_data(file_id="f1", schema=SCHEMA, include_scenes=True)
             sent = req.call_args[1]["json_body"]
-            with patch.object(client, "_request", return_value=accepted("extract/video")):
+            with patch.object(client, "_request", return_value=EXTRACT_ACCEPTED) as req:
                 handle = await client.submit_extract_video_data(video_url=VIDEO, schema=SCHEMA, include_scenes=True)
+            submitted = req.call_args[0]
             started = {"status": "success", "data": {"file_id": "f1", "scenes_status": "completed", "message": "there"}}
             with patch.object(client, "_request", return_value=started) as req:
-                scenes = await client.analyze_file_scenes("f1")
-            return extraction, sent, handle, scenes, req.call_args[0]
+                scenes = await client.watch_file("f1")
+                aliased = await client.analyze_file_scenes("f1")
+            return extraction, sent, handle, submitted, scenes, aliased, req.call_args_list
         finally:
             await client.aclose()
 
-    extraction, sent, handle, scenes, call = asyncio.run(go())
+    extraction, sent, handle, submitted, scenes, aliased, calls = asyncio.run(go())
     assert extraction.frames_analyzed == 30 and sent["include_scenes"] is True
     assert isinstance(handle, AsyncJob) and handle.job_type == "extract_video"
-    assert scenes.data.scenes_status == "completed" and call == ("POST", "/file/f1/scenes")
+    assert submitted == ("POST", "/extract/async")
+    assert scenes.data.scenes_status == "completed" and aliased.data.scenes_status == "completed"
+    # watch_file, then its alias: the same request both times.
+    assert [(c[0], c[1]) for c in calls] == [(("POST", "/watch/file"), {"json_body": {"file_id": "f1"}})] * 2

@@ -326,7 +326,7 @@ ExtractionTokenUsage = UsageBlock
 
 
 # ---------------------------------------------------------------------------
-# Async jobs (shared by /transcribe, /watch, /extract/video, /tweet/statement and TikTok)
+# Async jobs (shared by /transcribe, /watch, /extract, /tweet/statement and TikTok)
 # ---------------------------------------------------------------------------
 
 
@@ -969,7 +969,7 @@ class FileResponse(BaseModel):
 
 
 class FileScenesData(BaseModel):
-    """Where the scene analysis of a file stands after ``analyze_file_scenes``."""
+    """Where the scene analysis of a file stands after ``watch_file``."""
 
     file_id: Optional[str] = Field(None, alias="file_id")
     # "processing" (started, or already running) or "completed" (the scenes were already there).
@@ -1140,7 +1140,7 @@ class TranscribeJob(_AsyncJobBase):
 
 
 class ExtractVideoJob(_AsyncJobBase):
-    """Body of ``GET /extract/video/{task_id}``.
+    """Body of ``GET /extract/{task_id}``.
 
     Once completed, ``result`` holds the extracted data, matching the ``data``
     field of the synchronous :meth:`~vidnavigator.VidNavigatorClient.extract_video_data`,
